@@ -14,12 +14,12 @@ namespace Auto.Lexer
 -- ⟨identifier⟩ ::= ⟨symbol⟩ | (_ ⟨symbol⟩ ⟨index⟩+)
 -- ⟨sort⟩ ::= ⟨identifier⟩ | (⟨identifier⟩ ⟨sort⟩+)
 -- ⟨sorted_var⟩ ::= (⟨symbol⟩ ⟨sort⟩)
--- ⟨term⟩ ::= ⟨spec_constant⟩ | ⟨forall (⟨sorted_var⟩+) ⟨term⟩ | ⟨exists (⟨sorted_var⟩+) ⟨term⟩
+-- ⟨var_binding⟩ ::= (⟨symbol⟩ ⟨term⟩)
+-- ⟨term⟩ ::= ⟨spec_constant⟩ | (forall (⟨sorted_var⟩+) ⟨term⟩) | (exists (⟨sorted_var⟩+) ⟨term⟩) | (let (⟨var_binding⟩+) ⟨term⟩)
 
 /- Ignored for now:
     - Attributes
     - Qual_identifiers
-    - Var_bindings
     - Patterns
     - Match_cases
     - Some of the Term forms that require any of the above -/
@@ -80,6 +80,7 @@ def underscore : ERE := .ofStr "_"
 
 def SMTforall : ERE := .ofStr "forall"
 def SMTexists : ERE := .ofStr "exists"
+def SMTlet : ERE := .ofStr "let"
 
 /-- Special constants -/
 def specConst : ERE := .plus #[
@@ -134,6 +135,7 @@ def term : ERE := .plus #[
   specConst,
   .attr SMTforall "forall",
   .attr SMTexists "exists",
+  .attr SMTlet "let",
   .attr lparen "(",
   .attr rparen ")",
   sorted_var
