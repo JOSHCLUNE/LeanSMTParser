@@ -1,5 +1,6 @@
 import Lean
 import SMTParser.LexInit
+import Std.Data.String.Basic
 
 namespace Auto
 namespace Parser.SMTTerm
@@ -208,6 +209,14 @@ def lexTerm [Monad m] [Lean.MonadError m] (s : String) (p : String.Pos)
     | ⟨.malformed, _, _, _⟩  => return .malformed
   throwError s!"parseSexp :: Unexpected error when parsing string {s}"
 
+partial def lexAllTerms [Monad m] [Lean.MonadError m] (s : String) (p : String.Pos) (acc : List Term) : m (List Term) := do
+  match ← lexTerm s p {} with
+  | .complete e p =>
+    let restTerms ← lexAllTerms s p acc
+    return e :: restTerms
+  | .malformed .. => throwError "lexAllTerms: malformed input {s} (lexing from position {p})"
+  | .incomplete .. => return acc
+
 private def testLexer (s : String) (p : String.Pos) (print := true) : MetaM Unit := do
   match ← lexTerm s p {} with
   | .complete e p => if print then IO.println e; IO.println (Substring.toString ⟨s, p, s.endPos⟩)
@@ -223,6 +232,7 @@ inductive SymbolInput
 | Unary -- Used for symbols that take in exactly one argument
 | LeftAssoc -- Used for symbols like `+` or `or` that ideally take in two symbols but can be chained if given more arguments
 | TwoExact -- Used for symbols like `<` that take in exactly two arguments
+| Minus -- Minus is left-associative when given ≥ 2 arguments but is also used for unary negation
 
 open SymbolInput
 
@@ -234,7 +244,7 @@ def smtSymbolToLeanName (s : String) : Option (Name × SymbolInput) :=
   | ">" => some (`GT.gt, TwoExact)
   | ">=" => some (`GE.ge, TwoExact)
   | "+" => some (`HAdd.hAdd, LeftAssoc)
-  | "-" => some (`HSub.hSub, LeftAssoc) -- Subtraction is left-associative in SMT theories
+  | "-" => some (`HSub.hSub, Minus) -- Minus is left-associative when given ≥ 2 arguments but is also used for unary negation
   | "*" => some (`HMul.hMul, LeftAssoc)
   | "/" => some (`HDiv.hDiv, LeftAssoc)
   | "or" => some (`Or, LeftAssoc)
@@ -246,7 +256,7 @@ def smtSymbolToLeanName (s : String) : Option (Name × SymbolInput) :=
 def builtInSymbolMap : HashMap String Expr :=
   let map := HashMap.empty
   let map := map.insert "Nat" (mkConst ``Nat)
-  let map := map.insert "Int" (mkConst ``Nat) -- TODO: Change this to Int and fix the issue of parsing int literals
+  let map := map.insert "Int" (mkConst ``Int)
   let map := map.insert "Bool" (.sort .zero)
   map
 
@@ -280,7 +290,6 @@ partial def parseForall (vs : List Term) (symbolMap : HashMap String Expr) : Met
     let body ← parseTerm forallBody symbolMap
     Meta.mkForallFVars (sortedVarDecls.map (fun decl => mkFVar decl.fvarId)) body
 
-/-- TODO: parseExists has a bug in which it incorrectly processes exists expressions with more than one sorted var. -/
 partial def parseExists (vs : List Term) (symbolMap : HashMap String Expr) : MetaM Expr := do
   let [app sortedVars, existsBody] := vs
     | throwError "parseExists :: Unexpected input list {vs}"
@@ -373,7 +382,7 @@ partial def parseImplication (args : List Term) (symbolMap : HashMap String Expr
 
 partial def parseTerm (e : Term) (symbolMap : HashMap String Expr) : MetaM Expr := do
   match e with
-  | atom (num n) => return Expr.lit (Literal.natVal n)
+  | atom (num n) => mkAppM ``Int.ofNat #[Expr.lit (Literal.natVal n)]
   | atom (rat n m) => throwError "parseTerm :: Rationals not implemented yet"
   | atom (str s) => return Expr.lit (Literal.strVal s)
   | atom (symb s) =>
@@ -404,9 +413,16 @@ partial def parseTerm (e : Term) (symbolMap : HashMap String Expr) : MetaM Expr 
           let arg2 ← parseTerm arg2 symbolMap
           mkAppM s #[arg1, arg2]
         | arg1 :: (arg2 :: restArgs) =>
+          -- TODO: Interpret `(< a b c)` as `(and (< a b) (< b c))`
           throwError "parseTerm :: TwoExact symbol with more than two arguments not implemented yet (e: {e})"
         | _ => throwError "parseTerm :: Invalid application {e}"
       | some (s, LeftAssoc) => parseLeftAssocApp s restVs symbolMap
+      | some (s, Minus) =>
+        match restVs with -- Subtraction is left associative, but if it takes in just one argument, Minus is interpreted as negation
+        | [arg] =>
+          let arg ← parseTerm arg symbolMap
+          mkAppM ``Neg.neg #[arg]
+        | _ => parseLeftAssocApp s restVs symbolMap
       | none =>
         match symbolMap.find? s with
         | some symbolExp =>
@@ -423,8 +439,8 @@ private def testParseTerm (s : String) (p : String.Pos) : MetaM Expr := do
     IO.println s!"Lexed term: {e}"
     IO.println s!"Rest of string: {(Substring.toString ⟨s, p, s.endPos⟩)}"
     let constants :=
-      #[("P", (Expr.forallE `_ (mkConst ``Nat) (.sort .zero) .default)),
-        ("x", (mkConst ``Nat)), ("y", (mkConst ``Nat))]
+      #[("P", (Expr.forallE `_ (mkConst ``Int) (.sort .zero) .default)),
+        ("x", (mkConst ``Int)), ("y", (mkConst ``Int))]
     withLocalDeclsD (constants.map fun (n, ty) => (n, fun _ => pure ty)) fun _ => do
       let some xDecl := (← getLCtx).findFromUserName? `x
         | throwError "Unknown variable name x"
@@ -451,3 +467,4 @@ private def testParseTerm (s : String) (p : String.Pos) : MetaM Expr := do
 #eval testParseTerm "(or (not (exists ((z Int) (q Int)) (or (not (>= z 0)) (P z)))) (or (not (>= (+ x y) 0)) (P (+ x y))))" 0
 #eval testParseTerm "(=> (forall ((z Int)) (=> (>= z 0) (P z))) (forall ((z Int)) (or (not (>= z 0)) (P z))))" 0
 #eval testParseTerm "(forall ((B0 Bool) (B1 Bool)) (= (=> B0 B1) (or (not B0) B1)))" 0
+#eval testParseTerm "(- 3)" 0

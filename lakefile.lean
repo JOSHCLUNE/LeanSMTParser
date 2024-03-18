@@ -1,7 +1,9 @@
 import Lake
 open Lake DSL
 
-require auto from git "https://github.com/leanprover-community/lean-auto.git"@"93105204453ca14cea9ae0c58bddb6809676db50"
+require «mathlib» from git "https://github.com/leanprover-community/mathlib4" @ "v4.7.0-rc2"
+
+require «Duper» from git "https://github.com/leanprover-community/duper.git" @ "v0.0.10"
 
 package SMTParser {
   -- add package configuration options here
