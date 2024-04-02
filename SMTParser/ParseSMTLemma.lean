@@ -47,30 +47,11 @@ def evalParseSMTLemma : Tactic
     let exp ← parseTerm e symbolMap
     let expStx ← PrettyPrinter.delab exp
     let suggestion ← `(tactic| have : $expStx := sorry)
-    Tactic.TryThis.addSuggestion parseSMTLemmaStxRef suggestion (← getRef)
-    /-
-    -- let test ← `(Parser.Term.haveDecl| test : Nat := 0)
-    -- let suggestion ← `(Parser.Tactic.tacticSeq| have $test:haveDecl; case _ test => exact trivial)
-    let suggestion ←`(Lean.Parser.Tactic.tacticSeq| have : exp := sorry; have : Nat := sorry)
-    addTryThisTacticSeqSuggestion makeHavesStxRef suggestion (← getRef)
-    -/
+    withOptions (fun o => (o.set `pp.analyze true).set `pp.funBinderTypes true) $
+      Tactic.TryThis.addSuggestion parseSMTLemmaStxRef suggestion (← getRef)
   | .malformed .. => throwError "malformed"
   | .incomplete .. => throwError "incomplete"
 | _ => throwUnsupportedSyntax
-
-theorem testParseSMTLemma (x y : Int) ( P : Int → Prop) : True := by
-  -- parseSMTLemma "(or (not (>= x 0)) (not (>= y 0)) (>= (+ x y) 0))"
-  have : (¬x ≥ Int.ofNat 0 ∨ ¬y ≥ Int.ofNat 0) ∨ x + y ≥ Int.ofNat 0 := sorry
-
-  -- parseSMTLemma "(or (not (exists ((z Int)) (or (not (>= z 0)) (P z)))) (or (not (>= (+ x y) 0)) (P (+ x y))))"
-  have : (¬∃ z, ¬z ≥ Int.ofNat 0 ∨ P z) ∨ ¬x + y ≥ Int.ofNat 0 ∨ P (x + y) := sorry
-
-  -- parseSMTLemma "(not (exists ((z Int)) (not (= z z))))"
-  -- have : ¬∃ z, ¬z = z := sorry -- TODO: This example fails because Lean can't synthesize z's type
-
-  -- parseSMTLemma "(or (not (forall ((z Int)) (or (not (>= z 0)) (P z)))) (or (not (>= (+ x y) 0)) (P (+ x y))))"
-  have : (¬∀ (z : Int), ¬z ≥ Int.ofNat 0 ∨ P z) ∨ ¬x + y ≥ Int.ofNat 0 ∨ P (x + y) := sorry
-  exact trivial
 
 @[tactic parseSMTLemmasFromFile]
 def evalParseSMTLemmasFromFile : Tactic
@@ -99,14 +80,49 @@ def evalParseSMTLemmasFromFile : Tactic
     for lemmaStx in lemmasStx do
       tacticsArr := tacticsArr.push $ ← `(tactic| have : $lemmaStx := sorry)
     let tacticSeq ← `(tacticSeq| $tacticsArr*)
-    addTryThisTacticSeqSuggestion parseSMTLemmasFromFileStxRef tacticSeq (← getRef)
+    withOptions (fun o => (o.set `pp.analyze true).set `pp.funBinderTypes true) $
+      addTryThisTacticSeqSuggestion parseSMTLemmasFromFileStxRef tacticSeq (← getRef)
 | _ => throwUnsupportedSyntax
+
+set_option pp.funBinderTypes true in
+theorem testParseSMTLemma (x y : Int) ( P : Int → Prop) : True := by
+  have : ¬x ≥ Int.ofNat 0 ∧ ¬y ≥ Int.ofNat 0 → x + y ≥ Int.ofNat 0 := by sorry
+
+  -- parseSMTLemma "(= 0.0 0.0)"
+  have : (¬x ≥ Int.ofNat 0 ∨ ¬y ≥ Int.ofNat 0) ∨ x + y ≥ Int.ofNat 0 := sorry
+
+  -- parseSMTLemma "(or (not (exists ((z Int)) (or (not (>= z 0)) (P z)))) (or (not (>= (+ x y) 0)) (P (+ x y))))"
+  have : (¬∃ z, ¬z ≥ Int.ofNat 0 ∨ P z) ∨ ¬x + y ≥ Int.ofNat 0 ∨ P (x + y) := sorry
+
+  -- This doesn't work unless the user uses `set_option pp.funBinderTypes true`. As far as I can tell, setting this option
+  -- in `parseSMTLemma` isn't sufficient. I think the answer is to just have a tooltip advising users to enable pp.funBinderTypes
+  -- if the produced suggestion gives the error "failed to infer binder type"
+  have : ¬∃ (z : ℤ), z = z := sorry
+  have : ¬∃ (z : ℤ), z = z := sorry
+  -- have : ¬∃ z, ¬z = z := sorry -- TODO: This example fails because Lean can't synthesize z's type
+
+  -- parseSMTLemma "(or (not (forall ((z Int)) (or (not (>= z 0)) (P z)))) (or (not (>= (+ x y) 0)) (P (+ x y))))"
+  have : (¬∀ (z : Int), ¬z ≥ Int.ofNat 0 ∨ P z) ∨ ¬x + y ≥ Int.ofNat 0 ∨ P (x + y) := sorry
+  exact trivial
 
 theorem testParseSMTLemmasFromFile (a b x y : Int) ( P : Int → Prop) : True := by
   -- parseSMTLemmasFromFile "/Users/joshClune/Desktop/CVC5 Test Files/simple-example-output.txt"
-  have : (¬x ≥ Int.ofNat 0 ∨ ¬y ≥ Int.ofNat 0) ∨ x + y ≥ Int.ofNat 0 := sorry
+  -- have : (¬x ≥ Int.ofNat 0 ∨ ¬y ≥ Int.ofNat 0) ∨ x + y ≥ Int.ofNat 0 := sorry
 
-  -- parseSMTLemmasFromFile "/Users/joshClune/Desktop/CVC5 Test Files/simple-example2-output.txt"
-  have : (¬a ≥ Int.ofNat 0 ∨ ¬b ≥ Int.ofNat 0) ∨ a + b ≥ Int.ofNat 0 := sorry
-  have : (¬x ≥ Int.ofNat 0 ∨ ¬y ≥ Int.ofNat 0) ∨ x + y ≥ Int.ofNat 0 := sorry
+  -- parseSMTLemmasFromFile "/Users/joshClune/Desktop/CVC5 Test Files/new-simple-example-output.txt"
+  have : x ≥ Int.ofNat 0 ∧ y ≥ Int.ofNat 0 → x + y ≥ Int.ofNat 0 := by
+    simp
+    omega
+
   exact trivial
+
+example (x y : Int) : x ≥ 0 → y ≥ 0 → x + y ≥ 0 := by omega
+example (x y : Int) : x ≥ 0 ∧ y ≥ 0 → x + y ≥ 0 := by omega
+
+example (x y : Int) : (¬x ≥ Int.ofNat 0 ∨ ¬y ≥ Int.ofNat 0) ∨ x + y ≥ Int.ofNat 0 := by
+  simp only [Int.ofNat_eq_coe, CharP.cast_eq_zero, ge_iff_le, not_le] -- This simp call is necessary
+  omega
+
+example (x y : Int) : x ≥ Int.ofNat 0 ∧ y ≥ Int.ofNat 0 → x + y ≥ Int.ofNat 0 := by
+  simp only [Int.ofNat_eq_coe, CharP.cast_eq_zero, ge_iff_le, and_imp] -- This simp call is necessary
+  omega

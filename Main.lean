@@ -1,4 +1,3 @@
-import SMTParser.SMTParser
-import SMTParser.ParseSMTLemma
+import SMTParser.QuerySMT
 
 def main : List String → IO UInt32 := fun args => do return 0
