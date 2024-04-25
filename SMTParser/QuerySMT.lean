@@ -1,10 +1,13 @@
 import Auto
 import Duper
 import Mathlib.Tactic
+import SMTParser.UtilTactics
 
 open Lean Meta Auto Elab Tactic Parser Tactic
 
 initialize Lean.registerTraceClass `querySMT.debug
+
+namespace QuerySMT
 
 inductive filterOptTy where
 | noFilter
@@ -41,48 +44,6 @@ def querySMT.getFilterOpt (opts : Options) : filterOptTy :=
 def querySMT.getFilterOptM : CoreM filterOptTy := do
   let opts ← getOptions
   return querySMT.getFilterOpt opts
-
-syntax (name := proveSMTLemma) "proveSMTLemma" : tactic
-
-@[tactic proveSMTLemma]
-def evalProveSMTLemma : Tactic
-| `(proveSMTLemma | proveSMTLemma%$stxRef) => withMainContext do
-  let tacList := [
-    ← `(tactic| simp),
-    ← `(tactic| rfl),
-    ← `(tactic| tauto),
-    ← `(tactic| linarith only),
-    ← `(tactic| omega),
-    ← `(tactic| aesop)
-  ]
-  -- `loop` iterates through `allTacs`, collecting the tactics that made any progress in `usedTacs`, then
-  -- returns the sublist of tactics that can be used to close the goal (if there exists one)
-  let rec loop (allTacs : List Syntax.Tactic) (usedTacs : Array Syntax.Tactic)
-    : TacticM (Option (Array Syntax.Tactic)) := do
-    match allTacs with
-    | [tac] =>
-      let tacSucceeded ←
-        tryCatch
-          (do let _ ← evalTactic tac; pure true)
-          (fun _ => pure false)
-      if tacSucceeded then return some (usedTacs.push tac)
-      else return none
-    | tac :: tacs =>
-      let tacSucceeded ←
-        tryCatch
-          (do let _ ← evalTactic tac; pure true)
-          (fun _ => pure false)
-      if tacSucceeded then
-        if (← getGoals).isEmpty then return usedTacs.push tac
-        else loop tacs (usedTacs.push tac)
-      else loop tacs usedTacs
-    | [] => throwError "loop error in proveSMTLemma" -- Should never occur because [tac] is base case
-  match ← loop tacList #[] with
-  | some tacsUsed =>
-    let tacticSeq ← `(tacticSeq| $tacsUsed*)
-    addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
-  | none => throwError "proveSMTLemma was unable to prove this goal"
-| _ => throwUnsupportedSyntax
 
 /-- Checks whether the expression `e` can already be proven by `duper` -/
 def uselessLemma (e : Expr) : TacticM Bool := do
@@ -155,13 +116,10 @@ def getDuperCoreSMTLemmas (smtLemmas : List Expr) (lemmas : Array Auto.Lemma) : 
         let isFromGoal := false -- TODO: Figure out how to correctly compute this using `goalDecls`
         formulas := formulas.push (lem.type, ← mkAppM ``eq_true #[lem.proof], lem.params, isFromGoal)
       pure formulas.toList
-    /-
     let duperConfigOptions :=
       { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
         preprocessing := none, includeExpensiveRules := none, selFunction := none }
     let prf ← runDuperPortfolioMode formulas none duperConfigOptions none
-    -/
-    let prf ← runDuperInstance1 formulas none 0
     let mut smtLemmasInPrf := #[]
     let mut smtDeclIndex := 0
     for x in xs do
@@ -171,6 +129,15 @@ def getDuperCoreSMTLemmas (smtLemmas : List Expr) (lemmas : Array Auto.Lemma) : 
       smtDeclIndex := smtDeclIndex + 1
     pure smtLemmasInPrf.toList
 
+/-- Copied from Lean.Meta.Tactic.Intro.lean -/
+private partial def getIntrosSize : Expr → Nat
+  | .forallE _ _ b _ => getIntrosSize b + 1
+  | .letE _ _ _ b _  => getIntrosSize b + 1
+  | .mdata _ b       => getIntrosSize b
+  | e                =>
+    if let some (_, _, _, b) := e.letFun? then getIntrosSize b + 1
+    else 0
+
 @[tactic querySMT]
 def evalQuerySMT : Tactic
 | `(querySMT | querySMT%$stxRef $instr $hints $[$uords]* {$configOptions,*}) => withMainContext do
@@ -178,7 +145,11 @@ def evalQuerySMT : Tactic
   -- First, apply `intros` to put `x₁ x₂ ⋯ xₙ` into the local context,
   --   now the goal is just `G`
   let lctxBeforeIntros ← getLCtx
-  let (goalBinders, newGoal) ← (← getMainGoal).intros
+  let originalMainGoal ← getMainGoal
+  let goalType ← originalMainGoal.getType
+  let goalType ← instantiateMVars goalType
+  let numBinders := getIntrosSize goalType
+  let (goalBinders, newGoal) ← introNCore originalMainGoal numBinders [] true true
   let [nngoal] ← newGoal.apply (.const ``Classical.byContradiction [])
     | throwError "evalAuto :: Unexpected result after applying Classical.byContradiction"
   let (ngoal, absurd) ← MVarId.intro1 nngoal
@@ -208,15 +179,19 @@ def evalQuerySMT : Tactic
       -- Build the `intros ...` tactic with appropriate names
       let mut introsNames : Array Name := #[]
       let mut needIntrosTactic := false -- We only need the `intros` tactic if there is at least one non-proof binder
+      let mut numTrailingUnderscores := 0 -- Info to remove trailing underscores at the end of `intros` tactic
       for fvarId in goalBinders do
         let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
         let ty := localDecl.type
         if (← inferType ty).isProp then
           introsNames := introsNames.push `_
+          numTrailingUnderscores := numTrailingUnderscores + 1
         else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
           introsNames := introsNames.push $ Name.eraseMacroScopes localDecl.userName
           needIntrosTactic := true
+          numTrailingUnderscores := 0
       if needIntrosTactic then -- Include `intros ...` tactic only if there is at least one non-proof binder to introduce
+        introsNames := introsNames.toSubarray 0 (introsNames.size - numTrailingUnderscores)
         let ids : TSyntaxArray [`ident, `Lean.Parser.Term.hole] := introsNames.map (fun n => mkIdent n)
         tacticsArr := tacticsArr.push $ ← `(tactic| intros $ids*)
       -- Create each of the SMT lemmas
@@ -240,3 +215,5 @@ def evalQuerySMT : Tactic
       let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
       absurd.assign proof
 | _ => throwUnsupportedSyntax
+
+end QuerySMT
