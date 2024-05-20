@@ -139,21 +139,9 @@ theorem test9 (h : ∀ x : Int, ∃ y : Int, x = y) :
   specialize h x
   exact h
 
-set_option trace.skolemizeAll.debug true in
--- set_option pp.all true in
-theorem test1 (h : ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z) :
+example (h : ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z) :
   ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z := by
   skolemizeAll
-  -- I'm 99% sure the problem is specifically in the second skolem witness. Look at skolemizeForall dbg output
-  -- In particular, check whether bFVar is being properly abstracted
-  /-
-  skolemWitness after mkLambda (twice): fun _ forallBinder =>
-      (Classical.indefiniteDescription
-          (fun x => (fun forallBinder => Classical.choose _) forallBinder < forallBinder ∧ forallBinder < x)
-          (Classical.choose_spec _)).1
-
-  In the above, we have: `_ : ∃ y z, y < forallBinder✝¹ ∧ forallBinder✝¹ < z`
-  -/
   intro x
   apply Exists.intro (sk0 x)
   apply Exists.intro (sk1 x)
@@ -167,18 +155,31 @@ theorem test2 (h : ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z) :
   apply Exists.intro (x + 1)
   simp
 
-#print test2
-
-/-
-example (x : Int) (h : True ∧ ∃ y : Int, 2 * y = x) : x ≠ 1 := by
-  querySMT
-  -- This is causing a parse error because of a rewrite involving smtd_0
-  -- (original command has smtd_0 in a quanitifer, but the rewrite just refers to smtd_0)
-
 example (h : ∀ x : Int, ∃ y : Int, y < x) : ∃ z : Int, z < 0 := by
-  -- Can't call `cases` or `rcases` on `h` but I still need to skolemize it
-  querySMT
+  skolemizeAll
+  have smtLemma0 : (¬∃ smtd_2, smtd_2 < Int.ofNat 0) → False := by
+    simp
+    tauto
+  duper [*]
 
-example (x : Int) (h : False ∨ ∃ y : Int, 2 * y = x) : x ≠ 1 := by
-  querySMT
--/
+set_option trace.skolemizeAll.debug true in
+example (P : Int → Prop) (Q : Prop) (h : Q ∧ ∃ x : Int, P x) :
+  Q ∨ ∃ x : Int, P x := by
+  skolemizeAll
+  sorry
+
+#check Exists.elim
+
+set_option trace.skolemizeAll.debug true in
+example (P : Int → Prop) (Q : Prop) (h : Q ∨ ∃ x : Int, P x) :
+  Q ∨ ∃ x : Int, P x := by
+  skolemizeAll
+  sorry
+
+example (P : Int → Prop) (Q : Prop) (h : False ∨ ∃ x : Int, P x) :
+  ∃ x : Int, P x := by
+  -- apply Classical.byContradiction
+  -- smtLemma0 comes from the negated target, so querySMT needs to call
+  -- apply `Classical.byContradiction` after all the intros
+  have smtLemma0 : ∀ (smtd_2 : ℤ), ¬P smtd_2 := by proveSMTLemma
+  duper [*]

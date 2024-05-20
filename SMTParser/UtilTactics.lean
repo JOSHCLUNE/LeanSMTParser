@@ -52,11 +52,6 @@ end ProveSMTLemma
 
 namespace SkolemizeOne
 
-#check mkForallFVars
-#check Exists.intro
-#check Eq
-#check Core.betaReduce
-
 mutual
 
 partial def skolemizeAnd (fVarId : FVarId) (generatedSkolems : Array Expr) (forallFVars: Array Expr) (e1 e2 : Expr)
@@ -140,63 +135,22 @@ partial def skolemizeAnd (fVarId : FVarId) (generatedSkolems : Array Expr) (fora
 /-- Given an `fVarId` whose type has the form `∃ x : α, p x`, and `forallFVars` of types `forallFVarTys`, generalizes the existential statement
     to produce `p (f forallFVar1 forallFVar2 ...)` where `f : forallFVarTy1 → forallFVarTy2 → ... α`. Returns:
     - A generalized type for the skolem symbol `∀ [[forallFVars]] → α`
-    - A skolemWitness `f forallFVar1 forallFVar2 ...`
+    - A skolemWitness `λ [[forallFVars]] → f forallFVars` which has the type described in bullet 1
     - A proof of `p (f forallFVar1 forallFVar2 ...)` -/
-partial def generalizeExists (fVarId : FVarId) (generatedSkolems : Array Expr) (forallFVars : Array Expr) (ty b : Expr) : TacticM (Expr × Expr × Expr) := do
+partial def generalizeExists (fVarId : FVarId) (forallFVars : Array Expr) (ty b : Expr) : TacticM (Expr × Expr × Expr) := do
   let generalizedTy ← mkForallFVars forallFVars ty
   -- `fVarId : ∃ x : α, p x`
   -- `originalSkolemWitness : α`
-  let originalSkolemWitness ← mkAppOptM ``Classical.choose #[some ty, none, some (.fvar fVarId)]
+  let originalSkolemWitness ← mkAppOptM ``Classical.choose #[some ty, some b, some (.fvar fVarId)]
   -- `originalSkolemWitnessSpec : p originalSkolemWitness`
   let originalSkolemWitnessSpec ← mkAppM ``Classical.choose_spec #[.fvar fVarId]
-
-
-  -- What I need is `∃ f : ([[forallFVars]] → α), p (f forallFVars)`
-  -- Then the skolem witness would be Classical.choose of the above and the witnessspec would be choose_spec of the above
-
   -- `generalizedSkolemWitness : [[forallFVars]] → α`
   let generalizedSkolemWitness ← mkLambdaFVars forallFVars originalSkolemWitness
-  -- `instantiatedSkolemWitness : α`
-  let instantiatedSkolemWitness ← mkAppM' generalizedSkolemWitness forallFVars
-
-  let generalizedB :=
-    match b with
-    | .lam _ _ b _ => b
-    | _ => mkApp b (.bvar 0)
-  let generalizedB ←
-    withLocalDeclD `generalizedSkolem generalizedTy fun generalizedSkolemFVar => do
-      mkLambdaFVars #[generalizedSkolemFVar] (generalizedB.instantiate1 (← mkAppM' generalizedSkolemFVar forallFVars))
-
-
-  -- I need to figure out how to turn `generalizedSkolemWitness` into something I can abstract away
-  -- Right now, `generalizedB` is `p instantiatedSkolemWitness` but I want it to be
-  -- `fun (generalizedSkolemWitness : generalizedTy) => p (generalizedSkolemWitness forallFVars)`
-  -- But I can't just abstract `generalizedSkolemWitness` right now because `generalizedSkolemWitness` isn't an fvar
-  -- Look at `makeSkTerm` in Duper
-
-  let generalizedExists ← mkAppOptM ``Exists.intro #[generalizedTy, generalizedB, generalizedSkolemWitness, originalSkolemWitnessSpec]
-
-  trace[skolemizeAll.debug] "generalizeExists called"
-  trace[skolemizeAll.debug] "fVarId: {Expr.fvar fVarId}"
-  trace[skolemizeAll.debug] "ty: {ty}"
-  trace[skolemizeAll.debug] "b: {b}"
-  trace[skolemizeAll.debug] "forallFVars: {forallFVars}"
-  trace[skolemizeAll.debug] "originalSkolemWitness: {originalSkolemWitness}"
-  trace[skolemizeAll.debug] "originalSkolemWitnessSpec: {originalSkolemWitnessSpec}"
-  trace[skolemizeAll.debug] "generalizedSkolemWitness: {generalizedSkolemWitness}"
-  trace[skolemizeAll.debug] "instantiatedSkolemWitness: {instantiatedSkolemWitness}"
-  trace[skolemizeAll.debug] "generalizedTy: {generalizedTy}"
-  trace[skolemizeAll.debug] "generalizedB: {generalizedB}"
-  trace[skolemizeAll.debug] "generalizedExists: {generalizedExists}"
-  return (generalizedTy, generalizedSkolemWitness /- ← mkAppM' generalizedSkolemWitness forallFVars -/, originalSkolemWitnessSpec)
+  return (generalizedTy, generalizedSkolemWitness, originalSkolemWitnessSpec)
 
 partial def skolemizeExists (fVarId : FVarId) (generatedSkolems : Array Expr) (forallFVars : Array Expr) (ty b : Expr)
   : TacticM (Option (List Expr × Expr × List Expr × Expr)) := do
-  trace[skolemizeAll.debug] "Calling skolemizeExists"
-  trace[skolemizeAll.debug] "ty: {ty}"
-  trace[skolemizeAll.debug] "b: {b}"
-  trace[skolemizeAll.debug] "forallFVars: {forallFVars}"
-  let (generalizedTy, skolemWitness, skolemWitnessSpec) ← generalizeExists fVarId generatedSkolems forallFVars ty b
+  let (generalizedTy, skolemWitness, skolemWitnessSpec) ← generalizeExists fVarId forallFVars ty b
   withLocalDeclD `generalizedSkolem generalizedTy fun skolemFVar => do
     let generatedSkolems := generatedSkolems.push skolemFVar
     let b :=
@@ -207,54 +161,21 @@ partial def skolemizeExists (fVarId : FVarId) (generatedSkolems : Array Expr) (f
     let bWithBinder ← mkForallFVars generatedSkolems b
     withLocalDeclD `_ b fun skolemizedLemmaFVar => do
       let some (skolemTypes, newLemma, skolemWitnesses, lemmaProof) ← skolemizeOneHelper skolemizedLemmaFVar.fvarId! generatedSkolems forallFVars
-        | trace[skolemizeAll.debug] "skolemizeExists base case"
-          trace[skolemizeAll.debug] "b (modified): {b}"
-          trace[skolemizeAll.debug] "bWithBinder: {bWithBinder}"
-          return some ([generalizedTy], bWithBinder, [skolemWitness], skolemWitnessSpec)
+        | return some ([generalizedTy], bWithBinder, [skolemWitness], skolemWitnessSpec)
       let abstractedLemmaProof ← mkLambdaFVars #[skolemizedLemmaFVar, skolemFVar] lemmaProof
       let lemmaProof ← instantiateLambda abstractedLemmaProof #[skolemWitnessSpec, skolemWitness]
       let abstractedSkolemWitnesses ← skolemWitnesses.mapM (fun witness => mkLambdaFVars #[skolemizedLemmaFVar, skolemFVar] witness)
       let skolemWitnesses ← abstractedSkolemWitnesses.mapM (fun abstractedSkolemWitness => instantiateLambda abstractedSkolemWitness #[skolemWitnessSpec, skolemWitness])
       return some (generalizedTy :: skolemTypes, newLemma, skolemWitness :: skolemWitnesses, lemmaProof)
 
-partial def skolemizeExistsOld (fVarId : FVarId) (generatedSkolems : Array Expr) (forallFVars : Array Expr) (ty b : Expr)
-  : TacticM (Option (List Expr × Expr × List Expr × Expr)) := do
-  trace[skolemizeAll.debug] "Calling skolemizeExists"
-  trace[skolemizeAll.debug] "ty: {ty}"
-  trace[skolemizeAll.debug] "b: {b}"
-  trace[skolemizeAll.debug] "forallFVars: {forallFVars}"
-  let skolemWitness ← mkAppOptM ``Classical.choose #[some ty, none, some (.fvar fVarId)]
-  let skolemWitnessSpec ← mkAppM ``Classical.choose_spec #[.fvar fVarId]
-  withLocalDeclD `_ ty fun skolemFVar => do
-    let generatedSkolems := generatedSkolems.push skolemFVar
-    let b :=
-      match b with
-      | .lam _ _ b _ => b
-      | _ => mkApp b (.bvar 0)
-    let b := b.instantiate1 skolemFVar
-    let bWithBinder ← mkForallFVars generatedSkolems b
-    withLocalDeclD `_ b fun skolemizedLemmaFVar => do
-      let some (skolemTypes, newLemma, skolemWitnesses, lemmaProof) ← skolemizeOneHelper skolemizedLemmaFVar.fvarId! generatedSkolems forallFVars
-        | return some ([ty], bWithBinder, [skolemWitness], skolemWitnessSpec)
-      let abstractedLemmaProof ← mkLambdaFVars #[skolemizedLemmaFVar, skolemFVar] lemmaProof
-      let lemmaProof ← instantiateLambda abstractedLemmaProof #[skolemWitnessSpec, skolemWitness]
-      let abstractedSkolemWitnesses ← skolemWitnesses.mapM (fun witness => mkLambdaFVars #[skolemizedLemmaFVar, skolemFVar] witness)
-      let skolemWitnesses ← abstractedSkolemWitnesses.mapM (fun abstractedSkolemWitness => instantiateLambda abstractedSkolemWitness #[skolemWitnessSpec, skolemWitness])
-      return some (ty :: skolemTypes, newLemma, skolemWitness :: skolemWitnesses, lemmaProof)
-
--- TODO: Modify `skolemizeExists` and maybe `skolemizeAnd` so that generated skolems actually depend on `forallTys`
 partial def skolemizeForall (fVarId : FVarId) (generatedSkolems : Array Expr) (forallFVars : Array Expr) (ty b : Expr)
   : TacticM (Option (List Expr × Expr × List Expr × Expr)) :=
   withLocalDeclD `forallBinder ty fun tyFVar => do
     let b := b.instantiate1 tyFVar
     withLocalDeclD `_ b fun bFVar => do
-      let some (skolemTypes, newLemma, skolemWitnesses, lemmaProof) ← skolemizeOneHelper bFVar.fvarId! generatedSkolems (forallFVars.push tyFVar)
+      let forallFVars := forallFVars.push tyFVar
+      let some (skolemTypes, newLemma, skolemWitnesses, lemmaProof) ← skolemizeOneHelper bFVar.fvarId! generatedSkolems forallFVars
         | return none
-      trace[skolemizeAll.debug] "Calling skolemizeForall"
-      trace[skolemizeAll.debug] "skolemTypes: {skolemTypes}"
-      trace[skolemizeAll.debug] "newLemmas: {newLemma}"
-      trace[skolemizeAll.debug] "skolemWitnesses: {skolemWitnesses}"
-      trace[skolemizeAll.debug] "lemmaProof: {lemmaProof}"
       -- Skolem symbols should be universally bound at the front, so we need to move `tyFVar`'s binder
       -- below the skolem binders but not below other universal binders
       let skolemTypesDeclInfo : Array (Name × (Array Expr → TacticM Expr)) := Id.run do
@@ -263,12 +184,26 @@ partial def skolemizeForall (fVarId : FVarId) (generatedSkolems : Array Expr) (f
           let skolemTypeConstructor : Array Expr → TacticM Expr := fun _ => pure skolemType
           res := res.push (`skolemBinder, skolemTypeConstructor)
         return res
-      -- TODO: Need to universally quantify over not just `tyFVar`, but also `bFVar`
       let newLemma ←
         withLocalDeclsD skolemTypesDeclInfo fun skolemFVars => do
           let instantiatedNewLemma ← instantiateForall newLemma skolemFVars
           mkForallFVars (skolemFVars.push tyFVar) instantiatedNewLemma
+      let lemmaProof ← mkLambdaFVars #[bFVar] lemmaProof
+      let lemmaProof ← mkAppM' lemmaProof #[← mkAppM' (.fvar fVarId) #[tyFVar]]
+      let lemmaProof ← whnf lemmaProof
       let lemmaProof ← mkLambdaFVars #[tyFVar] lemmaProof
+
+      let skolemWitnesses ← skolemWitnesses.mapM
+        (fun skolemWitness => do
+          let skolemWitness ← mkAppM' skolemWitness forallFVars
+          let skolemWitness ← whnf skolemWitness
+          let skolemWitness ← mkLambdaFVars forallFVars skolemWitness
+          let skolemWitness ← mkLambdaFVars #[bFVar] skolemWitness
+          let skolemWitness ← mkAppM' skolemWitness #[← mkAppM' (.fvar fVarId) #[tyFVar]]
+          let skolemWitness ← mkAppM' skolemWitness forallFVars -- This + last line might cancel. Experiment with just returning skolemWitness here
+          let skolemWitness ← whnf skolemWitness
+          mkLambdaFVars forallFVars skolemWitness
+        )
       return some (skolemTypes, newLemma, skolemWitnesses, lemmaProof)
 
 /-- Given `fVarId` which is part of the local context of `mvarId`, finds the `ldecl` corresponding to `fVarId` and checks
@@ -287,14 +222,13 @@ partial def skolemizeOneHelper (fVarId : FVarId) (generatedSkolems : Array Expr)
   : TacticM (Option (List Expr × Expr × List Expr × Expr)) := do
   let ldecl ← Lean.FVarId.getDecl fVarId
   let ty ← instantiateMVars ldecl.type
-  trace[skolemizeAll.debug] "Calling skolemizeOneHelper on ty: {ty}"
   match ty with
   | Expr.app (Expr.app (Expr.const ``Exists _) ty) b => skolemizeExists fVarId generatedSkolems forallFVars ty b
-  | Expr.forallE _ ty b _ =>
-    -- TODO: Distinguish between genuine forall and implication
+  | Expr.forallE _ ty b _ => -- TODO: Distinguish between genuine forall and implication
     skolemizeForall fVarId generatedSkolems forallFVars ty b
   | Expr.app (Expr.app (Expr.const ``And lvls) e1) e2 => skolemizeAnd fVarId generatedSkolems forallFVars e1 e2 lvls
-  | _ => return none -- Nontrivial skolemization not implemented yet
+  | Expr.app (Expr.app (Expr.const ``Or lvls) e1) e2 => return none -- TODO Or support
+  | _ => return none -- TODO: Negation support
 
 end
 
@@ -304,13 +238,8 @@ end
     `skolemizeOne` will assign to `mvarId` and generate a new mvarId which is returned (along with an updated skolemIdx) -/
 def skolemizeOne (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : String) (skolemIdx : Nat) : TacticM (MVarId × Nat) :=
   mvarId.withContext do
-    trace[skolemizeAll.debug] "Calling skolemizeOne on fvar: {Expr.fvar fVarId}"
     let some (skolemTypes, newLemma, skolemWitnesses, lemmaProof) ← skolemizeOneHelper fVarId #[] #[]
       | return (mvarId, skolemIdx)
-    trace[skolemizeAll.debug] "skolemTypes: {skolemTypes}"
-    trace[skolemizeAll.debug] "newLemmas: {newLemma}"
-    trace[skolemizeAll.debug] "skolemWitnesses: {skolemWitnesses}"
-    trace[skolemizeAll.debug] "lemmaProof: {lemmaProof}"
     let mvarTarget ← instantiateMVars (← mvarId.getType)
     let mvarTag ← mvarId.getTag
     let skolemTypesDeclInfo : Array (Name × (Array Expr → TacticM Expr)) := Id.run do
@@ -324,20 +253,12 @@ def skolemizeOne (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : String) (sk
       return res
     let newGoal ←
       withLocalDeclsD skolemTypesDeclInfo fun skolemFVars => do
-        trace[skolemizeAll.debug] "About to call instantiateForall on newLemma: {newLemma} with skolemFVars: {skolemFVars}"
         let instantiatedNewLemma ← instantiateForall newLemma skolemFVars
         withLocalDeclD `_ instantiatedNewLemma fun newLemmaFVar =>
           mkForallFVars (skolemFVars.push newLemmaFVar) mvarTarget
-    trace[skolemizeAll.debug] "dbg point 3"
     let newGoalMVar ← mkFreshExprSyntheticOpaqueMVar newGoal mvarTag
-    trace[skolemizeAll.debug] "newGoal: {newGoal}"
-    trace[skolemizeAll.debug] "newGoalMVar: {newGoalMVar}"
-    trace[skolemizeAll.debug] "mvarTarget: {mvarTarget}"
-    trace[skolemizeAll.debug] "Plan is to instantiate mvarTarget with ← mkAppM' newGoalMVar (skolemWitnesses.toArray ++ #[lemmaProof])"
-    trace[skolemizeAll.debug] "mvarTarget instantiation term: {← mkAppM' newGoalMVar (skolemWitnesses.toArray ++ #[lemmaProof])}"
-    mvarId.assign (← mkAppM' newGoalMVar (skolemWitnesses.toArray ++ #[lemmaProof]))
+    mvarId.assign (← reduceAll (← mkAppM' newGoalMVar (skolemWitnesses.toArray ++ #[lemmaProof])))
     let newGoalMVarId := newGoalMVar.mvarId!
-    trace[skolemizeAll.debug] "newGoalMVar before intros: {newGoalMVar}"
     let numSkolems := skolemTypes.length
     let skolemNames := Id.run do
       let mut skolemIdx := skolemIdx
@@ -347,7 +268,6 @@ def skolemizeOne (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : String) (sk
         skolemIdx := skolemIdx + 1
       return skolemNames.toList
     let (_, newGoalMVarId) ← newGoalMVarId.introN (numSkolems + 1) (skolemNames ++ [(← FVarId.getDecl fVarId).userName])
-    trace[skolemizeAll.debug] "newGoalMVar after intros: {newGoalMVar}"
     let newGoalMVarId ← newGoalMVarId.clear fVarId
     return (newGoalMVarId, skolemIdx + numSkolems)
 
