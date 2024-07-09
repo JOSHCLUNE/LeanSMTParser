@@ -15,13 +15,15 @@ set_option trace.auto.smt.proof true
 set_option trace.auto.smt.parseTermErrors true
 
 set_option trace.querySMT.debug true
-set_option duper.throwPortfolioErrors true
+set_option duper.throwPortfolioErrors false
 set_option querySMT.filterOpt 3
+
+-- This is needed to produce suggestions with type annotations in ∀ and ∃ binders
+set_option pp.analyze true
 
 example (x y z : Int) : x ≤ y → y ≤ z → x ≤ z := by
   querySMT
 
-set_option auto.smt.dumpHints.limitedRws false in
 example (x y z : Int) : x < y → y < z → x < z := by
   querySMT
 
@@ -63,13 +65,13 @@ example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
 
 example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
   ∀ x : Int, ∀ y : Int, P (x, y) := by
-  querySMT -- varName: smti_0 maps to an atom other than term
+  querySMT
 
+set_option duper.collectDatatypes true in
 example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
   ∀ z : Int × Int, P z := by
   querySMT
 
--- set_option trace.duper.printProof true in
 example (Even Odd : Int → Prop)
   (h1 : ∀ x : Int, ∀ y : Int, Odd (x) → Odd (y) → Even (x + y))
   (h2 : ∀ x : Int, ∀ y : Int, Odd (x) → Even (y) → Odd (x + y))
@@ -77,77 +79,94 @@ example (Even Odd : Int → Prop)
   (h4 : Odd (1)) : Even (10) := by
   querySMT
 
+set_option trace.duper.printProof true in
 example (Pos Neg Zero : Int → Prop)
-  -- (h0 : ∀ x : Int, Pos x → ¬ Zero x)
-  -- (h1 : ∀ x : Int, Neg x → ¬ Zero x)
-  -- (h2 : ∀ x : Int, Zero x → (¬ Pos x) ∧ (¬ Neg x))
-  -- (h3 : ∀ x : Int, Pos x ∨ Neg x ∨ Zero x)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
-  (h5 : Pos 1)
-  -- (h6 : Zero 0)
-  /- (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) -/ : Pos 2 := by
+  (h5 : Pos 1) : Pos 2 := by
+  have smtLemma0 : Int.ofNat 1 + Int.ofNat 1 = Int.ofNat 2 := by proveSMTLemma
+  duper [*]
+
+example (Pos Neg Zero : Int → Prop)
+  (h4 : ∀ x : Int, Neg x → Neg (x - 1))
+  (h5 : Neg (-1)) : Neg (-2) := by
   querySMT
 
 example (Pos Neg Zero : Int → Prop)
-  -- (h0 : ∀ x : Int, Pos x → ¬ Zero x)
-  -- (h1 : ∀ x : Int, Neg x → ¬ Zero x)
-  -- (h2 : ∀ x : Int, Zero x → (¬ Pos x) ∧ (¬ Neg x))
-  -- (h3 : ∀ x : Int, Pos x ∨ Neg x ∨ Zero x)
-  (h4 : ∀ x : Int, Pos x → Pos (x + 1))
-  (h5 : Pos 1)
-  -- (h6 : Zero 0)
-  (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) : Pos 2 := by
-  querySMT
-
-example (Pos Neg Zero : Int → Prop)
-  -- (h0 : ∀ x : Int, Pos x → ¬ Zero x)
-  -- (h1 : ∀ x : Int, Neg x → ¬ Zero x)
-  -- (h2 : ∀ x : Int, Zero x → (¬ Pos x) ∧ (¬ Neg x))
-  -- (h3 : ∀ x : Int, Pos x ∨ Neg x ∨ Zero x)
   (h4 : ∀ x : Int, Neg x → Neg (x - 1))
   (h5 : Neg (-1))
-  -- (h6 : Zero 0)
-  /- (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) -/ : Neg (-2) := by
-  querySMT
-
--- set_option auto.smt.save true in
-example (Pos Neg Zero : Int → Prop)
-  -- (h0 : ∀ x : Int, Pos x → ¬ Zero x)
-  -- (h1 : ∀ x : Int, Neg x → ¬ Zero x)
-  -- (h2 : ∀ x : Int, Zero x → (¬ Pos x) ∧ (¬ Neg x))
-  -- (h3 : ∀ x : Int, Pos x ∨ Neg x ∨ Zero x)
-  (h4 : ∀ x : Int, Neg x → Neg (x - 1))
-  (h5 : Neg (-1))
-  -- (h6 : Zero 0)
   (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) : Neg (-2) := by
   querySMT
-
-example (Pos Neg Zero : Int → Prop)
-  -- (h0 : ∀ x : Int, Pos x → ¬ Zero x)
-  -- (h1 : ∀ x : Int, Neg x → ¬ Zero x)
-  -- (h2 : ∀ x : Int, Zero x → (¬ Pos x) ∧ (¬ Neg x))
-  -- (h3 : ∀ x : Int, Pos x ∨ Neg x ∨ Zero x)
-  (h4 : ∀ x : Int, Neg (- x) → Neg (-(x + 1)))
-  (h5 : Neg (-1))
-  -- (h6 : Zero 0)
-  /- (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) -/ : Neg (- 2) := by
-  querySMT
-
--- set_option auto.smt.save true in
-example (Pos Neg Zero : Int → Prop)
-  (h4 : ∀ x : Int, Neg (- x) → Neg ((- x) - 1))
-  (h5 : Neg (-1)) : Neg (- 2) := by
-  querySMT
-
-/-
-example (x y : Real) : x < y ∨ y ≤ x := by
-  querySMT -- Fails because lean-auto doesn't depend on Mathlib and therefore doesn't know about Reals
-
-example (x y z : Nat) : x < y → y < z → x < z := by
-  querySMT -- TODO: Look into incorporating `zify` in the preprocessing (or a better version of it)
--/
 
 theorem forallExists : ∀ x : Int, ∃ y : Int, x ≤ y := by
   intros x
   have smtLemma0 : (¬∃ smtd_0, x ≤ smtd_0) → False := by proveSMTLemma
   duper [*]
+
+example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
+  ∃ z : Int × Int, P z := by
+  querySMT
+
+example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
+  ∀ x : Int, ∀ y : Int, P (x, y) := by
+  querySMT
+
+set_option duper.collectDatatypes true in
+example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
+  ∀ z : Int × Int, P z := by
+  querySMT
+
+example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
+  ∀ x : Int, ∀ y : Int, P (x, y) := by
+  querySMT
+
+inductive myType
+| const1 : myType
+| const2 : myType
+
+open myType
+
+-- Note, zipperposition can't solve this with lean-auto's current encoding
+set_option duper.collectDatatypes true in
+example : ∀ x : myType, x = const1 ∨ x = const2 := by
+  querySMT
+
+structure myStructure where
+  field1 : Int
+  field2 : Int
+
+open myStructure
+
+example : myStructure.mk 0 (1 + 1) = myStructure.mk 0 2 := by
+  querySMT
+
+example : { field1 := 0, field2 := 0 : myStructure } ≠ ⟨0, 1⟩ := by
+  querySMT
+
+example : ∀ l : List Int, ∃ l' : List Int, l' = 0 :: l := by
+  querySMT
+
+mutual
+  inductive IntTree where
+    | node : Int → IntTreeList → IntTree
+
+  inductive IntTreeList where
+    | nil  : IntTreeList
+    | cons : IntTree → IntTreeList → IntTreeList
+end
+
+open IntTree IntTreeList
+
+example (contains1 : IntTree → Int → Prop) (contains2 : IntTreeList → Int → Prop)
+  (h1 : ∀ l : IntTreeList, ∀ x : Int, ∀ y : Int, contains1 (node x l) y ↔ (x = y ∨ contains2 l y))
+  (h2 : ∀ t : IntTree, ∀ l : IntTreeList, ∀ x : Int, contains2 (cons t l) x ↔ (contains1 t x ∨ contains2 l x))
+  (h3 : ∀ x : Int, ¬contains2 nil x) :
+  contains1 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (x = a ∨ x = b ∨ x = c) := by
+  duper [*]
+
+set_option maxHeartbeats 1000000 in
+example (contains1 : IntTree → Int → Prop) (contains2 : IntTreeList → Int → Prop)
+  (h1 : ∀ l : IntTreeList, ∀ x : Int, ∀ y : Int, contains1 (node x l) y ↔ (x = y ∨ contains2 l y))
+  (h2 : ∀ t : IntTree, ∀ l : IntTreeList, ∀ x : Int, contains2 (cons t l) x ↔ (contains1 t x ∨ contains2 l x))
+  (h3 : ∀ x : Int, ¬contains2 nil x) :
+  contains1 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (x = a ∨ x = b ∨ x = c) := by
+  querySMT
