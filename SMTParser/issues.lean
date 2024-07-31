@@ -89,22 +89,11 @@ example (t : Type) (x : myType2 t) : ∃ y : t, x = const3 y ∨ x = const4 y :=
   querySMT
 
 -------------------------------------------------------------------------------------------
--- The first example works fine, but the second extremely similar one fails
+-- The example previously worked but now results in a deterministic timeout, figure out why (not sure which
+-- commit caused this to stop working unfortunately)
 
-example (l : List Int) (contains : List Int → Int → Prop)
-  (h1 : ∀ x : Int, contains l x → x ≥ 0)
-  (h2 : ∃ x : Int, ∃ y : Int, contains l x ∧ contains l y ∧ x + y < 0) : False := by
-  skolemizeAll
-  querySMT
-
--- This is failing because `l.contains x` is being transformed to `l.contains sk0 = true` where `true`
--- is of type Bool (as opposed to being `True` of type `Prop`). So the `builtInSymbolMap` that `parseTerm`
--- uses is seeing `true` in the SMT output and parsing it as `True` even though in this instance, it
--- needs to be registered as `true`
-example (l : List Int) (h1 : ∀ x : Int, l.contains x → x ≥ 0)
-  (h2 : ∃ x : Int, ∃ y : Int, l.contains x ∧ l.contains y ∧ x + y < 0) : False := by
-  skolemizeAll
-  sorry -- querySMT -- Det timeout caused by `decide True` in smtLemmas. Look into a better Prop->Bool coercion
+example (x y z a b : Int) : (x < y → y < z → x < z) ∧ (a < b ∨ b ≤ a) := by
+  sorry -- querySMT
 
 -------------------------------------------------------------------------------------------
 -- The SMT parser can now handle Bool->Prop coercions, but there are some cases where we seem to need

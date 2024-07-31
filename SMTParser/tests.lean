@@ -9,6 +9,8 @@ set_option auto.smt.dumpHints.limitedRws true
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
+set_option linter.setOption false
+
 set_option trace.auto.smt.printCommands true
 set_option trace.auto.smt.result true
 set_option trace.auto.smt.proof true
@@ -27,9 +29,6 @@ example (x y z : Int) : x ≤ y → y ≤ z → x ≤ z := by
   querySMT
 
 example (x y z : Int) : x < y → y < z → x < z := by
-  querySMT
-
-example (x y z a b : Int) : (x < y → y < z → x < z) ∧ (a < b ∨ b ≤ a) := by
   querySMT
 
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
@@ -171,4 +170,15 @@ example (contains1 : IntTree → Int → Prop) (contains2 : IntTreeList → Int 
   (h2 : ∀ t : IntTree, ∀ l : IntTreeList, ∀ x : Int, contains2 (cons t l) x ↔ (contains1 t x ∨ contains2 l x))
   (h3 : ∀ x : Int, ¬contains2 nil x) :
   contains1 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (x = a ∨ x = b ∨ x = c) := by
+  querySMT
+
+example (l : List Int) (contains : List Int → Int → Prop)
+  (h1 : ∀ x : Int, contains l x → x ≥ 0)
+  (h2 : ∃ x : Int, ∃ y : Int, contains l x ∧ contains l y ∧ x + y < 0) : False := by
+  skolemizeAll
+  querySMT
+
+example (l : List Int) (h1 : ∀ x : Int, l.contains x → x ≥ 0)
+  (h2 : ∃ x : Int, ∃ y : Int, l.contains x ∧ l.contains y ∧ x + y < 0) : False := by
+  skolemizeAll
   querySMT
