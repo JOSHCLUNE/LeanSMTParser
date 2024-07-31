@@ -95,22 +95,6 @@ example (l : List Int) (contains : List Int → Int → Prop)
   (h1 : ∀ x : Int, contains l x → x ≥ 0)
   (h2 : ∃ x : Int, ∃ y : Int, contains l x ∧ contains l y ∧ x + y < 0) : False := by
   skolemizeAll
-  have :
-    let _let_1 := sk0 + sk1;
-    contains l sk0 ∧ contains l sk1 ∧ _let_1 < Int.ofNat 0 → ¬_let_1 ≥ Int.ofNat 0 :=
-    sorry
-  have :
-    let _let_1 := contains l sk1;
-    contains l sk0 ∧ _let_1 ∧ sk0 + sk1 < Int.ofNat 0 → _let_1 :=
-    sorry
-  have :
-    let _let_1 := contains l sk0;
-    _let_1 ∧ contains l sk1 ∧ sk0 + sk1 < Int.ofNat 0 → _let_1 :=
-    sorry
-  have : (∀ (_i : ℤ), contains l _i → Int.ofNat 0 ≤ _i) → ∀ (_i : ℤ), ¬contains l _i ∨ _i ≥ Int.ofNat 0 := sorry
-  have : sk0 ≥ Int.ofNat 0 ∧ sk1 ≥ Int.ofNat 0 → sk0 + sk1 ≥ Int.ofNat 0 := sorry
-  have : (∀ (_i : ℤ), ¬contains l _i ∨ _i ≥ Int.ofNat 0) → ¬contains l sk1 ∨ sk1 ≥ Int.ofNat 0 := sorry
-  have : (∀ (_i : ℤ), ¬contains l _i ∨ _i ≥ Int.ofNat 0) → ¬contains l sk0 ∨ sk0 ≥ Int.ofNat 0 := sorry
   querySMT
 
 -- This is failing because `l.contains x` is being transformed to `l.contains sk0 = true` where `true`
