@@ -8,6 +8,8 @@ set_option auto.smt.dumpHints true
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
+set_option linter.setOption false
+
 set_option trace.auto.smt.printCommands true
 set_option trace.auto.smt.result true
 set_option trace.auto.smt.proof true
@@ -47,7 +49,10 @@ example (P : Int → Prop) (Q : Int → Prop) (R : Int → Prop)
 
 example (x : Int) (h : ∃ y : Int, 2 * y = x) : x ≠ 1 := by
   skolemizeAll
-  querySMT
+  have smtLemma0 : ¬¬Int.ofNat 2 * sk0 = Int.ofNat 1 → False := by
+    simp
+    omega
+  duper [*]
 
 example (x : Int) (h : True ∧ ∃ y : Int, 2 * y = x) : ∃ y : Int, 2 * y = x := by
   skolemizeAll
@@ -86,10 +91,7 @@ example (h : ∃ x : Int, (∃ y : Int, x = y) ∧ (∃ z : Int, x ≠ z)) :
   . apply Exists.intro sk2
     exact h.2
 
-set_option pp.proofs true
-
-set_option trace.skolemizeAll.debug true in
-theorem test (h : ∀ x : Int, ∃ y : Int, x = y) :
+example (h : ∀ x : Int, ∃ y : Int, x = y) :
   ∀ x : Int, ∃ y : Int, x = y := by
   skolemizeAll
   intro x
@@ -97,7 +99,6 @@ theorem test (h : ∀ x : Int, ∃ y : Int, x = y) :
   specialize h x
   exact h
 
-set_option trace.skolemizeAll.debug true in
 example (h : ∀ x : Int, ∀ y : Int, ∃ z : Int, (x ≤ z ∧ z ≤ y) ∨ (y ≤ z ∧ z ≤ x)) :
   ∀ x : Int, ∀ y : Int, ∃ z : Int, (x ≤ z ∧ z ≤ y) ∨ (y ≤ z ∧ z ≤ x) := by
   skolemizeAll
@@ -130,8 +131,7 @@ example (h : ∀ x : Int, (∀ y : Int, ∃ z : Int, z = x + y) ∧ (∀ y : Int
     apply Exists.intro (sk1 x y)
     exact h.2 y
 
-set_option trace.skolemizeAll.debug true in
-theorem test9 (h : ∀ x : Int, ∃ y : Int, x = y) :
+example (h : ∀ x : Int, ∃ y : Int, x = y) :
   ∀ x : Int, ∃ y : Int, x = y := by
   skolemizeAll
   intro x
@@ -147,7 +147,7 @@ example (h : ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z) :
   apply Exists.intro (sk1 x)
   exact h x
 
-theorem test2 (h : ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z) :
+example (h : ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z) :
   ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z := by
   skolemizeAll
   intro x
@@ -162,24 +162,23 @@ example (h : ∀ x : Int, ∃ y : Int, y < x) : ∃ z : Int, z < 0 := by
     tauto
   duper [*]
 
-set_option trace.skolemizeAll.debug true in
 example (P : Int → Prop) (Q : Prop) (h : Q ∧ ∃ x : Int, P x) :
   Q ∨ ∃ x : Int, P x := by
   skolemizeAll
-  sorry
+  right
+  apply Exists.intro sk0
+  exact h.2
 
-#check Exists.elim
+example (h : ∀ x : Int, ∀ y : Int, ∃ x' : Int, ∃ y' : Int, x' = x + 1 ∧ y' = y + 1) :
+  ∀ x : Int, ∀ y : Int, ∃ x' : Int, ∃ y' : Int, x' = x + 1 ∧ y' = y + 1 := by
+  skolemizeAll
+  intro x y
+  apply Exists.intro (sk0 x y)
+  apply Exists.intro (sk1 x y)
+  exact h x y
 
 set_option trace.skolemizeAll.debug true in
 example (P : Int → Prop) (Q : Prop) (h : Q ∨ ∃ x : Int, P x) :
   Q ∨ ∃ x : Int, P x := by
-  skolemizeAll
+  skolemizeAll -- **TODO** Or support
   sorry
-
-example (P : Int → Prop) (Q : Prop) (h : False ∨ ∃ x : Int, P x) :
-  ∃ x : Int, P x := by
-  -- apply Classical.byContradiction
-  -- smtLemma0 comes from the negated target, so querySMT needs to call
-  -- apply `Classical.byContradiction` after all the intros
-  have smtLemma0 : ∀ (smtd_2 : ℤ), ¬P smtd_2 := by proveSMTLemma
-  duper [*]

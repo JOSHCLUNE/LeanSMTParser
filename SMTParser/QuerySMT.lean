@@ -156,7 +156,7 @@ def evalQuerySMT : Tactic
   replaceMainGoal [absurd]
   withMainContext do
     let lctxAfterIntros ← getLCtx
-    -- TODO: Figure out how to properly propagate `goalDecls` in getDuperCoreSMTLemmas
+    -- **TODO**: Figure out how to properly propagate `goalDecls` in getDuperCoreSMTLemmas
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
     let instr ← parseInstr instr
     match instr with

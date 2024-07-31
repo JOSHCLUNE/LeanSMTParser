@@ -132,6 +132,7 @@ partial def skolemizeAnd (fVarId : FVarId) (generatedSkolems : Array Expr) (fora
         let newLemmaProof ← mkAppM ``And.intro #[newE1Proof, newE2Proof]
         return some (e1SkolemTypes ++ e2SkolemTypes, newLemma, e1SkolemWitnesses ++ e2SkolemWitnesses, newLemmaProof)
 
+
 /-- Given an `fVarId` whose type has the form `∃ x : α, p x`, and `forallFVars` of types `forallFVarTys`, generalizes the existential statement
     to produce `p (f forallFVar1 forallFVar2 ...)` where `f : forallFVarTy1 → forallFVarTy2 → ... α`. Returns:
     - A generalized type for the skolem symbol `∀ [[forallFVars]] → α`
@@ -224,11 +225,11 @@ partial def skolemizeOneHelper (fVarId : FVarId) (generatedSkolems : Array Expr)
   let ty ← instantiateMVars ldecl.type
   match ty with
   | Expr.app (Expr.app (Expr.const ``Exists _) ty) b => skolemizeExists fVarId generatedSkolems forallFVars ty b
-  | Expr.forallE _ ty b _ => -- TODO: Distinguish between genuine forall and implication
+  | Expr.forallE _ ty b _ => -- **TODO** Distinguish between genuine forall and implication
     skolemizeForall fVarId generatedSkolems forallFVars ty b
   | Expr.app (Expr.app (Expr.const ``And lvls) e1) e2 => skolemizeAnd fVarId generatedSkolems forallFVars e1 e2 lvls
-  | Expr.app (Expr.app (Expr.const ``Or lvls) e1) e2 => return none -- TODO Or support
-  | _ => return none -- TODO: Negation support
+  | Expr.app (Expr.app (Expr.const ``Or lvls) e1) e2 => return none -- **TODO** Or support
+  | _ => return none -- **TODO** Negation support
 
 end
 

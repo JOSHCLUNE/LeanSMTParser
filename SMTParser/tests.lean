@@ -18,6 +18,8 @@ set_option trace.querySMT.debug true
 set_option duper.throwPortfolioErrors false
 set_option querySMT.filterOpt 3
 
+set_option duper.collectDatatypes true
+
 -- This is needed to produce suggestions with type annotations in ∀ and ∃ binders
 set_option pp.analyze true
 
