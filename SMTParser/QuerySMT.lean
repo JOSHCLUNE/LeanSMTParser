@@ -70,7 +70,7 @@ declare_syntax_cat QuerySMT.configOption (behavior := symbol)
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
 
-syntax (name := querySMT) "querySMT" autoinstr hints (uord)* (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
+syntax (name := querySMT) "querySMT" hints (uord)* (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
 
 def getLemmaPrefixFromConfigOptions (configOptionsStx : TSyntaxArray `QuerySMT.configOption) : Option String := Id.run do
   for configOptionStx in configOptionsStx do
@@ -140,7 +140,7 @@ private partial def getIntrosSize : Expr → Nat
 
 @[tactic querySMT]
 def evalQuerySMT : Tactic
-| `(querySMT | querySMT%$stxRef $instr $hints $[$uords]* {$configOptions,*}) => withMainContext do
+| `(querySMT | querySMT%$stxRef $hints $[$uords]* {$configOptions,*}) => withMainContext do
   -- Suppose the goal is `∀ (x₁ x₂ ⋯ xₙ), G`
   -- First, apply `intros` to put `x₁ x₂ ⋯ xₙ` into the local context,
   --   now the goal is just `G`
@@ -158,62 +158,56 @@ def evalQuerySMT : Tactic
     let lctxAfterIntros ← getLCtx
     -- **TODO**: Figure out how to properly propagate `goalDecls` in getDuperCoreSMTLemmas
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
-    let instr ← parseInstr instr
-    match instr with
-    | .none =>
-      let (lemmas, inhFacts) ← collectAllLemmas hints uords (goalBinders.push ngoal)
-      let allSMTLemmas ← runAutoGetHints lemmas inhFacts
-      let (preprocessFacts, theoryLemmas, instantiations, rewriteFacts) := allSMTLemmas
-      let smtLemmas := preprocessFacts ++ theoryLemmas ++ -- instantiations
-        (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
-      trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
-      let smtLemmas ←
-        match ← querySMT.getFilterOptM with
-        | noFilter => pure smtLemmas
-        | tautoFilter => smtLemmas.filterM (fun lem => return !(← isTautology lem))
-        | duperFilter => smtLemmas.filterM (fun lem => return !(← uselessLemma lem))
-        | duperCore => getDuperCoreSMTLemmas smtLemmas lemmas
-      trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.length}"
-      let lemmasStx ← smtLemmas.mapM (fun lemExp => PrettyPrinter.delab lemExp)
-      let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
-      -- Build the `intros ...` tactic with appropriate names
-      let mut introsNames : Array Name := #[]
-      let mut needIntrosTactic := false -- We only need the `intros` tactic if there is at least one non-proof binder
-      let mut numTrailingUnderscores := 0 -- Info to remove trailing underscores at the end of `intros` tactic
-      for fvarId in goalBinders do
-        let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
-        let ty := localDecl.type
-        if (← inferType ty).isProp then
-          introsNames := introsNames.push `_
-          numTrailingUnderscores := numTrailingUnderscores + 1
-        else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
-          introsNames := introsNames.push $ Name.eraseMacroScopes localDecl.userName
-          needIntrosTactic := true
-          numTrailingUnderscores := 0
-      if needIntrosTactic then -- Include `intros ...` tactic only if there is at least one non-proof binder to introduce
-        introsNames := introsNames.toSubarray 0 (introsNames.size - numTrailingUnderscores)
-        let ids : TSyntaxArray [`ident, `Lean.Parser.Term.hole] := introsNames.map (fun n => mkIdent n)
-        tacticsArr := tacticsArr.push $ ← `(tactic| intros $ids*)
-      -- Create each of the SMT lemmas
-      let mut lemmaCount := 0
-      let lemmaPrefix :=
-        match getLemmaPrefixFromConfigOptions configOptions with
-        | some lemmaPrefix => lemmaPrefix
-        | none => "smtLemma"
-      for lemmaStx in lemmasStx do
-        let lemmaName := lemmaPrefix ++ lemmaCount.repr
-        tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $lemmaStx := by proveSMTLemma)
-        lemmaCount := lemmaCount + 1
-      tacticsArr := tacticsArr.push $ ← `(tactic| duper [*])
-      let tacticSeq ← `(tacticSeq| $tacticsArr*)
-      -- Create the suggestion
-      withOptions (fun o => (o.set `pp.analyze true).set `pp.funBinderTypes true) $
-        addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
-      let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
-      absurd.assign proof
-    | .useSorry =>
-      let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
-      absurd.assign proof
+    let (lemmas, inhFacts) ← collectAllLemmas hints uords (goalBinders.push ngoal)
+    let allSMTLemmas ← runAutoGetHints lemmas inhFacts
+    let (preprocessFacts, theoryLemmas, instantiations, rewriteFacts) := allSMTLemmas
+    let smtLemmas := preprocessFacts ++ theoryLemmas ++ -- instantiations
+      (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
+    trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
+    let smtLemmas ←
+      match ← querySMT.getFilterOptM with
+      | noFilter => pure smtLemmas
+      | tautoFilter => smtLemmas.filterM (fun lem => return !(← isTautology lem))
+      | duperFilter => smtLemmas.filterM (fun lem => return !(← uselessLemma lem))
+      | duperCore => getDuperCoreSMTLemmas smtLemmas lemmas
+    trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.length}"
+    let lemmasStx ← smtLemmas.mapM (fun lemExp => PrettyPrinter.delab lemExp)
+    let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
+    -- Build the `intros ...` tactic with appropriate names
+    let mut introsNames : Array Name := #[]
+    let mut needIntrosTactic := false -- We only need the `intros` tactic if there is at least one non-proof binder
+    let mut numTrailingUnderscores := 0 -- Info to remove trailing underscores at the end of `intros` tactic
+    for fvarId in goalBinders do
+      let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
+      let ty := localDecl.type
+      if (← inferType ty).isProp then
+        introsNames := introsNames.push `_
+        numTrailingUnderscores := numTrailingUnderscores + 1
+      else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
+        introsNames := introsNames.push $ Name.eraseMacroScopes localDecl.userName
+        needIntrosTactic := true
+        numTrailingUnderscores := 0
+    if needIntrosTactic then -- Include `intros ...` tactic only if there is at least one non-proof binder to introduce
+      introsNames := introsNames.toSubarray 0 (introsNames.size - numTrailingUnderscores)
+      let ids : TSyntaxArray [`ident, `Lean.Parser.Term.hole] := introsNames.map (fun n => mkIdent n)
+      tacticsArr := tacticsArr.push $ ← `(tactic| intros $ids*)
+    -- Create each of the SMT lemmas
+    let mut lemmaCount := 0
+    let lemmaPrefix :=
+      match getLemmaPrefixFromConfigOptions configOptions with
+      | some lemmaPrefix => lemmaPrefix
+      | none => "smtLemma"
+    for lemmaStx in lemmasStx do
+      let lemmaName := lemmaPrefix ++ lemmaCount.repr
+      tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $lemmaStx := by proveSMTLemma)
+      lemmaCount := lemmaCount + 1
+    tacticsArr := tacticsArr.push $ ← `(tactic| duper [*])
+    let tacticSeq ← `(tacticSeq| $tacticsArr*)
+    -- Create the suggestion
+    withOptions (fun o => (o.set `pp.analyze true).set `pp.funBinderTypes true) $
+      addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
+    let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
+    absurd.assign proof
 | _ => throwUnsupportedSyntax
 
 end QuerySMT

@@ -99,9 +99,7 @@ example (Pos Neg Zero : Int → Prop)
   querySMT
 
 theorem forallExists : ∀ x : Int, ∃ y : Int, x ≤ y := by
-  intros x
-  have smtLemma0 : (¬∃ smtd_0, x ≤ smtd_0) → False := by proveSMTLemma
-  duper [*]
+  querySMT
 
 example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
   ∃ z : Int × Int, P z := by
@@ -181,4 +179,9 @@ example (l : List Int) (contains : List Int → Int → Prop)
 example (l : List Int) (h1 : ∀ x : Int, l.contains x → x ≥ 0)
   (h2 : ∃ x : Int, ∃ y : Int, l.contains x ∧ l.contains y ∧ x + y < 0) : False := by
   skolemizeAll
+  querySMT
+
+example (y : Bool) (p : Prop) (myAnd : Bool → Prop → Prop)
+  (hMyAnd : ∀ x : Bool, ∀ q : Prop, myAnd x q = (x = true) ∧ q) :
+  myAnd true True := by
   querySMT
