@@ -22,9 +22,6 @@ set_option querySMT.filterOpt 3
 
 set_option duper.collectDatatypes true
 
--- This is needed to produce suggestions with type annotations in ∀ and ∃ binders
-set_option pp.analyze true
-
 example (x y z : Int) : x ≤ y → y ≤ z → x ≤ z := by
   querySMT
 
@@ -44,11 +41,9 @@ example (x : Int) : ∃ y : Int, y < x := by
   querySMT -- `proveSMTLemma` is insufficient to prove the lemma returned by cvc5 (basically just double-negated goal)
 
 example (x : Int) (h : ∃ y : Int, 2 * y = x) : x ≠ 1 := by
-  skolemizeAll
   querySMT
 
 example (x : Int) (h : True ∧ ∃ y : Int, 2 * y = x) : x ≠ 1 := by
-  skolemizeAll
   querySMT
 
 example (x : Int) (h : False ∨ ∃ y : Int, 2 * y = x) : x ≠ 1 := by
@@ -68,10 +63,9 @@ example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
   ∀ x : Int, ∀ y : Int, P (x, y) := by
   querySMT
 
-set_option duper.collectDatatypes true in
 example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
   ∀ z : Int × Int, P z := by
-  querySMT
+  querySMT -- Note this requires duper.collectDatatypes be set to true
 
 example (Even Odd : Int → Prop)
   (h1 : ∀ x : Int, ∀ y : Int, Odd (x) → Odd (y) → Even (x + y))
@@ -80,12 +74,10 @@ example (Even Odd : Int → Prop)
   (h4 : Odd (1)) : Even (10) := by
   querySMT
 
-set_option trace.duper.printProof true in
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1) : Pos 2 := by
-  have smtLemma0 : Int.ofNat 1 + Int.ofNat 1 = Int.ofNat 2 := by proveSMTLemma
-  duper [*]
+  querySMT
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg x → Neg (x - 1))
@@ -98,7 +90,7 @@ example (Pos Neg Zero : Int → Prop)
   (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) : Neg (-2) := by
   querySMT
 
-theorem forallExists : ∀ x : Int, ∃ y : Int, x ≤ y := by
+example : ∀ x : Int, ∃ y : Int, x ≤ y := by
   querySMT
 
 example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
@@ -173,15 +165,31 @@ example (contains1 : IntTree → Int → Prop) (contains2 : IntTreeList → Int 
 example (l : List Int) (contains : List Int → Int → Prop)
   (h1 : ∀ x : Int, contains l x → x ≥ 0)
   (h2 : ∃ x : Int, ∃ y : Int, contains l x ∧ contains l y ∧ x + y < 0) : False := by
-  skolemizeAll
   querySMT
 
 example (l : List Int) (h1 : ∀ x : Int, l.contains x → x ≥ 0)
   (h2 : ∃ x : Int, ∃ y : Int, l.contains x ∧ l.contains y ∧ x + y < 0) : False := by
-  skolemizeAll
   querySMT
 
 example (y : Bool) (p : Prop) (myAnd : Bool → Prop → Prop)
   (hMyAnd : ∀ x : Bool, ∀ q : Prop, myAnd x q = (x = true) ∧ q) :
   myAnd true True := by
+  querySMT
+
+inductive myType2 (t : Type)
+| const3 : t → myType2 t
+| const4 : t → myType2 t
+
+inductive myType3
+| const5 : Unit → myType3
+
+open myType2 myType3
+
+example (x : myType3) : ∃ y : Unit, x = const5 y := by
+  querySMT
+
+example (P : Int → Prop) (h : ∃ x : Int, P x) : ∃ y : Int, P (y + 0) := by
+  querySMT
+
+example (x : Int) (h : ∃ y : Int, y + y = x) : ∃ y : Int, y = x / 2 := by
   querySMT

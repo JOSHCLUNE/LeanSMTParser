@@ -69,6 +69,8 @@ declare_syntax_cat QuerySMT.configOption (behavior := symbol)
 
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
+syntax (&"goalHypPrefix" " := " strLit) : QuerySMT.configOption
+syntax (&"negGoalLemmaName" " := " strLit) : QuerySMT.configOption
 
 syntax (name := querySMT) "querySMT" hints (uord)* (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
 
@@ -83,6 +85,20 @@ def getSkolemPrefixFromConfigOptions (configOptionsStx : TSyntaxArray `QuerySMT.
   for configOptionStx in configOptionsStx do
     match configOptionStx with
     | `(configOption| skolemPrefix := $skolemPrefixSyntax:str) => return some skolemPrefixSyntax.getString
+    | _ => continue
+  return none
+
+def getGoalHypPrefixFromConfigOptions (configOptionsStx : TSyntaxArray `QuerySMT.configOption) : Option String := Id.run do
+  for configOptionStx in configOptionsStx do
+    match configOptionStx with
+    | `(configOption| goalHypPrefix := $goalHypPrefixSyntax:str) => return some goalHypPrefixSyntax.getString
+    | _ => continue
+  return none
+
+def getNegGoalLemmaNameFromConfigOptions (configOptionsStx : TSyntaxArray `QuerySMT.configOption) : Option String := Id.run do
+  for configOptionStx in configOptionsStx do
+    match configOptionStx with
+    | `(configOption| negGoalLemmaName := $negGoalLemmaNameSyntax:str) => return some negGoalLemmaNameSyntax.getString
     | _ => continue
   return none
 
@@ -113,7 +129,7 @@ def getDuperCoreSMTLemmas (smtLemmas : List Expr) (lemmas : Array Auto.Lemma) : 
         formulas := formulas.push (lem, ← mkAppM ``eq_true #[xs[lemCounter]!], #[], false)
         lemCounter := lemCounter + 1
       for lem in lemmas do -- Add lemmas from ordinary lctx (including the negated goal)
-        let isFromGoal := false -- TODO: Figure out how to correctly compute this using `goalDecls`
+        let isFromGoal := false -- **TODO**: Figure out how to correctly compute this using `goalDecls`
         formulas := formulas.push (lem.type, ← mkAppM ``eq_true #[lem.proof], lem.params, isFromGoal)
       pure formulas.toList
     let duperConfigOptions :=
@@ -140,7 +156,7 @@ private partial def getIntrosSize : Expr → Nat
 
 @[tactic querySMT]
 def evalQuerySMT : Tactic
-| `(querySMT | querySMT%$stxRef $hints $[$uords]* {$configOptions,*}) => withMainContext do
+| `(querySMT | querySMT%$stxRef $[$uords]* {$configOptions,*}) => withMainContext do
   -- Suppose the goal is `∀ (x₁ x₂ ⋯ xₙ), G`
   -- First, apply `intros` to put `x₁ x₂ ⋯ xₙ` into the local context,
   --   now the goal is just `G`
@@ -152,62 +168,81 @@ def evalQuerySMT : Tactic
   let (goalBinders, newGoal) ← introNCore originalMainGoal numBinders [] true true
   let [nngoal] ← newGoal.apply (.const ``Classical.byContradiction [])
     | throwError "evalAuto :: Unexpected result after applying Classical.byContradiction"
-  let (ngoal, absurd) ← MVarId.intro1 nngoal
+  let (_, absurd) ← MVarId.intro1 nngoal
   replaceMainGoal [absurd]
   withMainContext do
     let lctxAfterIntros ← getLCtx
     -- **TODO**: Figure out how to properly propagate `goalDecls` in getDuperCoreSMTLemmas
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
-    let (lemmas, inhFacts) ← collectAllLemmas hints uords (goalBinders.push ngoal)
-    let allSMTLemmas ← runAutoGetHints lemmas inhFacts
-    let (preprocessFacts, theoryLemmas, instantiations, rewriteFacts) := allSMTLemmas
-    let smtLemmas := preprocessFacts ++ theoryLemmas ++ -- instantiations
-      (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
-    trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
-    let smtLemmas ←
-      match ← querySMT.getFilterOptM with
-      | noFilter => pure smtLemmas
-      | tautoFilter => smtLemmas.filterM (fun lem => return !(← isTautology lem))
-      | duperFilter => smtLemmas.filterM (fun lem => return !(← uselessLemma lem))
-      | duperCore => getDuperCoreSMTLemmas smtLemmas lemmas
-    trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.length}"
-    let lemmasStx ← smtLemmas.mapM (fun lemExp => PrettyPrinter.delab lemExp)
-    let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
-    -- Build the `intros ...` tactic with appropriate names
-    let mut introsNames : Array Name := #[]
-    let mut needIntrosTactic := false -- We only need the `intros` tactic if there is at least one non-proof binder
-    let mut numTrailingUnderscores := 0 -- Info to remove trailing underscores at the end of `intros` tactic
-    for fvarId in goalBinders do
-      let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
-      let ty := localDecl.type
-      if (← inferType ty).isProp then
-        introsNames := introsNames.push `_
-        numTrailingUnderscores := numTrailingUnderscores + 1
-      else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
-        introsNames := introsNames.push $ Name.eraseMacroScopes localDecl.userName
-        needIntrosTactic := true
-        numTrailingUnderscores := 0
-    if needIntrosTactic then -- Include `intros ...` tactic only if there is at least one non-proof binder to introduce
-      introsNames := introsNames.toSubarray 0 (introsNames.size - numTrailingUnderscores)
+    let goalsBeforeSkolemization ← getGoals
+    match getSkolemPrefixFromConfigOptions configOptions with
+    | some skolemPrefix => evalTactic (← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)}))
+    | none => evalTactic (← `(tactic| skolemizeAll))
+    let goalsAfterSkolemization ← getGoals
+    let newAbsurd ← getMainGoal
+    withMainContext do -- Testing whether this fixes things
+      let (lemmas, inhFacts) ← collectAllLemmas (← `(hints| [*])) uords #[]
+      let allSMTLemmas ← runAutoGetHints lemmas inhFacts
+      let (preprocessFacts, theoryLemmas, instantiations, rewriteFacts) := allSMTLemmas
+      let smtLemmas := preprocessFacts ++ theoryLemmas ++ -- instantiations
+        (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
+      trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
+      let smtLemmas ←
+        match ← querySMT.getFilterOptM with
+        | noFilter => pure smtLemmas
+        | tautoFilter => smtLemmas.filterM (fun lem => return !(← isTautology lem))
+        | duperFilter => smtLemmas.filterM (fun lem => return !(← uselessLemma lem))
+        | duperCore => getDuperCoreSMTLemmas smtLemmas lemmas
+      trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.length}"
+      let lemmasStx ← smtLemmas.mapM
+        (fun lemExp => withOptions (fun o => o.set `pp.analyze true) $ PrettyPrinter.delab lemExp)
+      let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
+      -- Build the `intros ...` tactic with appropriate names
+      let mut introsNames : Array Name := #[]
+      let mut numGoalHyps := 0
+      let goalHypPrefix :=
+        match getGoalHypPrefixFromConfigOptions configOptions with
+        | some goalHypPrefix => goalHypPrefix
+        | none => "h"
+      for fvarId in goalBinders do
+        let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
+        let ty := localDecl.type
+        if (← inferType ty).isProp then
+          introsNames := introsNames.push (.str .anonymous (goalHypPrefix ++ numGoalHyps.repr))
+          numGoalHyps := numGoalHyps + 1
+        else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
+          introsNames := introsNames.push $ Name.eraseMacroScopes localDecl.userName
       let ids : TSyntaxArray [`ident, `Lean.Parser.Term.hole] := introsNames.map (fun n => mkIdent n)
-      tacticsArr := tacticsArr.push $ ← `(tactic| intros $ids*)
-    -- Create each of the SMT lemmas
-    let mut lemmaCount := 0
-    let lemmaPrefix :=
-      match getLemmaPrefixFromConfigOptions configOptions with
-      | some lemmaPrefix => lemmaPrefix
-      | none => "smtLemma"
-    for lemmaStx in lemmasStx do
-      let lemmaName := lemmaPrefix ++ lemmaCount.repr
-      tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $lemmaStx := by proveSMTLemma)
-      lemmaCount := lemmaCount + 1
-    tacticsArr := tacticsArr.push $ ← `(tactic| duper [*])
-    let tacticSeq ← `(tacticSeq| $tacticsArr*)
-    -- Create the suggestion
-    withOptions (fun o => (o.set `pp.analyze true).set `pp.funBinderTypes true) $
+      if ids.size > 0 then
+        tacticsArr := tacticsArr.push $ ← `(tactic| intros $ids*)
+      -- Add `apply Classical.byContradiction` so that SMT lemmas can depend on the negated goal
+      let byContradictionConst : TSyntax `term ← PrettyPrinter.delab $ mkConst ``Classical.byContradiction
+      tacticsArr := tacticsArr.push $ ← `(tactic| apply $byContradictionConst)
+      -- Introduce the negated hypothesis (again, so that SMT lemmas can depend on the negated goal)
+      match getNegGoalLemmaNameFromConfigOptions configOptions with
+      | some n => tacticsArr := tacticsArr.push $ ← `(tactic| intro $(mkIdent (.str .anonymous n)):term)
+      | none => tacticsArr := tacticsArr.push $ ← `(tactic| intro $(mkIdent (.str .anonymous "negGoal")):term)
+      -- Add `skolemizeAll` tactic iff there is something to skolemize
+      if goalsBeforeSkolemization != goalsAfterSkolemization then
+        match getSkolemPrefixFromConfigOptions configOptions with
+        | some skolemPrefix => tacticsArr := tacticsArr.push $ ← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)})
+        | none => tacticsArr := tacticsArr.push $ ← `(tactic| skolemizeAll)
+      -- Create each of the SMT lemmas
+      let mut lemmaCount := 0
+      let lemmaPrefix :=
+        match getLemmaPrefixFromConfigOptions configOptions with
+        | some lemmaPrefix => lemmaPrefix
+        | none => "smtLemma"
+      for lemmaStx in lemmasStx do
+        let lemmaName := lemmaPrefix ++ lemmaCount.repr
+        tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $lemmaStx := by proveSMTLemma)
+        lemmaCount := lemmaCount + 1
+      tacticsArr := tacticsArr.push $ ← `(tactic| duper [*])
+      let tacticSeq ← `(tacticSeq| $tacticsArr*)
+      -- Create the suggestion
       addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
-    let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
-    absurd.assign proof
+      let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
+      newAbsurd.assign proof
 | _ => throwUnsupportedSyntax
 
 end QuerySMT
