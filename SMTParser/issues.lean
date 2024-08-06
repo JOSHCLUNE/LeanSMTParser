@@ -135,13 +135,6 @@ example (x y z a b : Int) : (x < y → y < z → x < z) ∧ (a < b ∨ b ≤ a) 
   querySMT
 
 -------------------------------------------------------------------------------------------
--- cvc5 yields lemmas containing approximate (`?`) types
-
-example (y : Bool) (myNot : Bool → Bool) (not_not : ∀ x : Bool, myNot (myNot x) = x)
-  : y = myNot (myNot y) := by
-  querySMT
-
--------------------------------------------------------------------------------------------
 /-
 example (x y : Real) : x < y ∨ y ≤ x := by
   querySMT -- Fails because lean-auto doesn't depend on Mathlib and therefore doesn't know about Reals

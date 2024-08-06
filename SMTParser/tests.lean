@@ -192,3 +192,10 @@ example (P : Int → Prop) (h : ∃ x : Int, P x) : ∃ y : Int, P (y + 0) := by
 
 example (x : Int) (h : ∃ y : Int, y + y = x) : ∃ y : Int, y = x / 2 := by
   querySMT
+
+example (y : Bool) (myNot : Bool → Bool) (not_not : ∀ x : Bool, myNot (myNot x) = x)
+  : y = myNot (myNot y) := by
+  querySMT
+
+example (x : Int) : x * x - 1 = (x + 1) * (x - 1) := by
+  querySMT

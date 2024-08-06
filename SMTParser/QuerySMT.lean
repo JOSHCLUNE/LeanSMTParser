@@ -191,8 +191,8 @@ def evalQuerySMT : Tactic
     withMainContext do -- Testing whether this fixes things
       let (lemmas, inhFacts) ← collectAllLemmas (← `(hints| [*])) uords #[]
       let allSMTLemmas ← runAutoGetHints lemmas inhFacts
-      let (selectorInfos, preprocessFacts, theoryLemmas, instantiations, rewriteFacts) := allSMTLemmas
-      let smtLemmas := preprocessFacts ++ theoryLemmas ++ -- instantiations
+      let (selectorInfos, preprocessFacts, theoryLemmas, instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
+      let smtLemmas := preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
         (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
       trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
       let smtLemmas ← getDuperCoreSMTLemmas selectorInfos smtLemmas lemmas
