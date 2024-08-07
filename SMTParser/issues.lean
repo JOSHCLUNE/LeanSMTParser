@@ -25,6 +25,7 @@ set_option duper.collectDatatypes true
 
 -------------------------------------------------------------------------------------------
 -- Issue: Adding the fact `h7` causes Duper to stop succeeding and start saturating
+-- Update: The reason for this is the same as the issue below. Duper doesn't know that `-x` = `0 - x`
 
 set_option trace.duper.printProof true in
 example (Pos Neg Zero : Int → Prop)
@@ -33,13 +34,21 @@ example (Pos Neg Zero : Int → Prop)
   querySMT -- This problem works without `h7`
 
 set_option trace.duper.saturate.debug true in
+set_option trace.querySMT.debug true in
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1)
   (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) : Pos 2 := by
   sorry -- querySMT -- Duper saturates when `h7` is added
-  -- Temporary fix: Only pass unsat core to duper
-  -- Long term fix: Fix this behavior so duper can handle being given `h7`
+
+set_option trace.duper.saturate.debug true in
+set_option trace.querySMT.debug true in
+example (Pos Neg Zero : Int → Prop)
+  (h4 : ∀ x : Int, Pos x → Pos (x + 1))
+  (h5 : Pos 1)
+  (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) : Pos 2 := by
+  have neededFact : ∀ x : Int, -x = 0 - x := sorry
+  sorry -- querySMT -- `querySMT` currently fails even with neededFact, but only because the unsatCore reasoning filters out neededFact
 
 -------------------------------------------------------------------------------------------
 -- Issue: Duper doesn't natively know that `-x` = `0 - x`. So when `-x` appears in the initial
@@ -54,13 +63,13 @@ example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg (- x) → Neg (-(x + 1)))
   (h5 : Neg (-1)) : Neg (- 2) := by
   have neededFact : ∀ x : Int, -x = 0 - x := sorry
-  querySMT
+  sorry -- querySMT -- `querySMT` currently fails even with neededFact, but only because the unsatCore reasoning filters out neededFact
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg (- x) → Neg ((- x) - 1))
   (h5 : Neg (-1)) : Neg (- 2) := by
   have neededFact : ∀ x : Int, -x = 0 - x := sorry
-  querySMT
+  sorry -- querySMT -- `querySMT` currently fails even with neededFact, but only because the unsatCore reasoning filters out neededFact
 
 -------------------------------------------------------------------------------------------
 -- `cvc5` doesn't get these
@@ -72,7 +81,7 @@ example : ∀ x : Int × Int, ∃ y : Int, ∃ z : Int, x = (y, z) := by
   sorry -- querySMT -- `cvc5` times out
 
 -------------------------------------------------------------------------------------------
--- Currently the lean-auto/cvc5 connection can't handle selectors
+-- Selectors are not yet supported
 
 whatsnew in
 inductive myType2 (t : Type)

@@ -171,7 +171,7 @@ example (l : List Int) (h1 : ∀ x : Int, l.contains x → x ≥ 0)
   querySMT
 
 example (y : Bool) (p : Prop) (myAnd : Bool → Prop → Prop)
-  (hMyAnd : ∀ x : Bool, ∀ q : Prop, myAnd x q = (x = true) ∧ q) :
+  (hMyAnd : ∀ x : Bool, ∀ q : Prop, myAnd x q = ((x = true) ∧ q)) :
   myAnd true True := by
   querySMT
 
@@ -198,4 +198,16 @@ example (y : Bool) (myNot : Bool → Bool) (not_not : ∀ x : Bool, myNot (myNot
   querySMT
 
 example (x : Int) : x * x - 1 = (x + 1) * (x - 1) := by
+  querySMT
+
+-- Tests to make sure `h2` is not included in the final duper call
+example (p q unrelatedFact : Prop) (h1 : p → q) (h2 : unrelatedFact) (h3 : p) : q := by
+  querySMT
+
+-- Tests shadowing behavior (`querySMT` should emit a warning since `h1` is both shadowed and needed)
+example (p q unrelatedFact : Prop) (h1 : p → q) (h2 : unrelatedFact) (h1 : p) : q := by
+  querySMT
+
+-- Tests shadowing behavior (`querySMT` shouldn't emit a warning since the shadowed `h2` isn't needed)
+example (p q unrelatedFact : Prop) (h1 : p → q) (h2 : unrelatedFact) (h2 : p) : q := by
   querySMT
