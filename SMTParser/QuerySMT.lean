@@ -241,7 +241,6 @@ def evalQuerySMT : Tactic
       let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
       let mut numGoalHyps := 0
       for fvarId in goalBinders do
-        -- **TODO** Check whether a bug arises when `introNCore` introduces a fact that is then changed by `skolemizeAll`
         -- Use `lctxAfterIntros` instead of `lctxAfterSkolemization` because `goalBinders` was generated prior to skolemization
         let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
         let ty := localDecl.type

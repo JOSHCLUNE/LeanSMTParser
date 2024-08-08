@@ -211,3 +211,8 @@ example (p q unrelatedFact : Prop) (h1 : p → q) (h2 : unrelatedFact) (h1 : p) 
 -- Tests shadowing behavior (`querySMT` shouldn't emit a warning since the shadowed `h2` isn't needed)
 example (p q unrelatedFact : Prop) (h1 : p → q) (h2 : unrelatedFact) (h2 : p) : q := by
   querySMT
+
+-- Testing that I can introduce and skolemize a fact and still pass it to Duper without issue
+example (t1 t2 : Type) (f : t1 → t2) (P : t2 → Prop) (z : t2) (h : P z)
+  : (∀ y : t2, ∃ x : t1, f x = y) → ∃ x : t1, P (f x) := by
+  querySMT
