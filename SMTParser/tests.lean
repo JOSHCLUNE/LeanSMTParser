@@ -87,7 +87,7 @@ example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg x → Neg (x - 1))
   (h5 : Neg (-1))
   (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) : Neg (-2) := by
-  querySMT
+  querySMT -- `proveSMTLemma` is not able to prove `smtLemma0`
 
 example : ∀ x : Int, ∃ y : Int, x ≤ y := by
   querySMT
@@ -215,4 +215,23 @@ example (p q unrelatedFact : Prop) (h1 : p → q) (h2 : unrelatedFact) (h2 : p) 
 -- Testing that I can introduce and skolemize a fact and still pass it to Duper without issue
 example (t1 t2 : Type) (f : t1 → t2) (P : t2 → Prop) (z : t2) (h : P z)
   : (∀ y : t2, ∃ x : t1, f x = y) → ∃ x : t1, P (f x) := by
+  querySMT
+
+inductive myProd (t1 t2 : Type _)
+| mk : t1 → t2 → myProd t1 t2
+
+open myProd
+
+example (sum : myStructure → Int)
+  (hSum : ∀ x : Int, ∀ y : Int, sum (mk x y) = x + y)
+  (x : myStructure) : ∃ y : myStructure, sum y > sum x := by
+  querySMT
+
+-- Same as above example but uses a structure-like inductive type rather than a structure
+example (sum : myProd Int Int → Int)
+  (hSum : ∀ x : Int, ∀ y : Int, sum (mk x y) = x + y)
+  (x : myProd Int Int) : ∃ y : myProd Int Int, sum x < sum y := by
+  querySMT
+
+example (t : Type) (x : myType2 t) : ∃ y : t, x = const3 y ∨ x = const4 y := by
   querySMT

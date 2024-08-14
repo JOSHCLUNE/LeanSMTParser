@@ -15,9 +15,9 @@ def evalProveSMTLemma : Tactic
     ← `(tactic| simp),
     ← `(tactic| rfl),
     ← `(tactic| tauto),
-    ← `(tactic| aesop),
     ← `(tactic| linarith only),
-    ← `(tactic| omega)
+    ← `(tactic| omega),
+    ← `(tactic| aesop),
   ]
   -- `loop` iterates through `allTacs`, collecting the tactics that made any progress in `usedTacs`, then
   -- returns the sublist of tactics that can be used to close the goal (if there exists one)
