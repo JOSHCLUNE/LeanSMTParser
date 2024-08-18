@@ -1,7 +1,7 @@
 import Auto
 import Duper
 import Mathlib.Tactic
-import SMTParser.UtilTactics
+import QuerySMT.UtilTactics
 
 open Lean Meta Auto Elab Tactic Parser Tactic
 

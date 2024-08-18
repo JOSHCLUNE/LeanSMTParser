@@ -1,4 +1,4 @@
-import SMTParser.QuerySMT
+import QuerySMT.QuerySMT
 
 set_option auto.smt true
 set_option auto.smt.trust true

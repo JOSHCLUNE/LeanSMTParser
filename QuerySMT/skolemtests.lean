@@ -1,4 +1,4 @@
-import SMTParser.QuerySMT
+import QuerySMT.QuerySMT
 
 set_option auto.smt true
 set_option auto.smt.trust true
@@ -18,7 +18,6 @@ set_option auto.getHints.failOnParseError true
 
 set_option trace.querySMT.debug true
 set_option duper.throwPortfolioErrors true
-set_option querySMT.filterOpt 3
 
 set_option trace.skolemizeAll.debug false
 set_option pp.proofs true

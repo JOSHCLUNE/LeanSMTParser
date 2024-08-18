@@ -82,5 +82,5 @@
    "inputRev": "dev",
    "inherited": false,
    "configFile": "lakefile.lean"}],
- "name": "SMTParser",
+ "name": "QuerySMT",
  "lakeDir": ".lake"}

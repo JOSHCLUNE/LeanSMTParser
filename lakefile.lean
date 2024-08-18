@@ -5,15 +5,15 @@ require «mathlib» from git "https://github.com/leanprover-community/mathlib4" 
 
 require «Duper» from git "https://github.com/leanprover-community/duper.git" @ "dev"
 
-package SMTParser {
+package QuerySMT {
   -- add package configuration options here
 }
 
-lean_lib SMTParser {
+lean_lib QuerySMT {
   -- add library configuration options here
 }
 
 @[default_target]
-lean_exe «smtparser» {
+lean_exe «querysmt» {
   root := `Main
 }
