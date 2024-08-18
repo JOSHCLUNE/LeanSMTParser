@@ -9,26 +9,6 @@ initialize Lean.registerTraceClass `querySMT.debug
 
 namespace QuerySMT
 
-/-- Checks whether the expression `e` can already be proven by `duper` -/
-def uselessLemma (e : Expr) : TacticM Bool := do
-  withoutModifyingState do
-    let goalMVar ← mkFreshExprMVar e
-    let goal := goalMVar.mvarId!
-    setGoals [goal]
-    tryCatch
-      (do let _ ← evalTactic (← `(tactic| duper)); pure true)
-      (fun _ => pure false)
-
-/-- Checks whether the expression `e` can already be proven by `tauto` -/
-def isTautology (e : Expr) : TacticM Bool := do
-  withoutModifyingState do
-    let goalMVar ← mkFreshExprMVar e
-    let goal := goalMVar.mvarId!
-    setGoals [goal]
-    tryCatch
-      (do let _ ← evalTactic (← `(tactic| tauto)); pure true)
-      (fun _ => pure false)
-
 declare_syntax_cat QuerySMT.configOption (behavior := symbol)
 
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
@@ -65,6 +45,17 @@ def getNegGoalLemmaNameFromConfigOptions (configOptionsStx : TSyntaxArray `Query
     | `(configOption| negGoalLemmaName := $negGoalLemmaNameSyntax:str) => return some negGoalLemmaNameSyntax.getString
     | _ => continue
   return none
+
+/-- Sets the `auto.smt` options necessary to call `runAutoGetHints` without error -/
+def withAutoOptions {m : Type → Type} [MonadWithOptions m] {α : Type} (x : m α) : m α :=
+  withOptions
+    (fun o =>
+      let o := o.set `auto.smt true
+      let o := o.set `auto.smt.trust true
+      let o := o.set `auto.smt.solver.name "cvc5"
+      let o := o.set `auto.smt.dumpHints true
+      o.set `auto.smt.dumpHints.limitedRws true
+    ) x
 
 macro_rules
 | `(tactic| querySMT) => `(tactic| querySMT {})
@@ -256,7 +247,7 @@ def evalQuerySMT : Tactic
     withMainContext do -- Use updated main context so that `collectAllLemmas` collects from the appropriate context
       let lctxAfterSkolemization ← getLCtx
       let (lemmas, inhFacts) ← collectAllLemmas (← `(hints| [*])) uords #[]
-      let SMTHints ← runAutoGetHints lemmas inhFacts
+      let SMTHints ← withAutoOptions $ runAutoGetHints lemmas inhFacts
       let (unsatCoreDerivLeafStrings, selectorInfos, allSMTLemmas) := SMTHints
       let (preprocessFacts, theoryLemmas, instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
       let smtLemmas := preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored

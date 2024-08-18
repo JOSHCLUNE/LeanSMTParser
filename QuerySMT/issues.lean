@@ -1,11 +1,5 @@
 import QuerySMT.QuerySMT
 
-set_option auto.smt true
-set_option auto.smt.trust true
-set_option auto.smt.solver.name "cvc5"
-set_option auto.smt.dumpHints true
-set_option auto.smt.dumpHints.limitedRws true
-
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
