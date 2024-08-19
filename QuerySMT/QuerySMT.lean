@@ -2,6 +2,7 @@ import Auto
 import Duper
 import Mathlib.Tactic
 import QuerySMT.UtilTactics
+import QuerySMT.SkolemizeAll
 
 open Lean Meta Auto Elab Tactic Parser Tactic
 
