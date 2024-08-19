@@ -1,4 +1,4 @@
-import QuerySMT.QuerySMT
+import QuerySMT
 
 set_option auto.smt true
 set_option auto.smt.trust true

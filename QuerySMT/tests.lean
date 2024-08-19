@@ -1,4 +1,4 @@
-import QuerySMT.QuerySMT
+import QuerySMT
 
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
