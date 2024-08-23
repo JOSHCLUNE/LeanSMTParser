@@ -1,7 +1,6 @@
 import Auto
 import Duper
-import Mathlib.Tactic
-import QuerySMT.UtilTactics
+-- import QuerySMT.UtilTactics -- Removing this dependency so I can enable precompileModules
 import QuerySMT.SkolemizeAll
 
 open Lean Meta Auto Elab Tactic Parser Tactic
@@ -323,7 +322,8 @@ def evalQuerySMT : Tactic
           | none => "smtLemma"
         for smtLemmaStx in smtLemmasStx do
           let lemmaName := smtLemmaPrefix ++ smtLemmaCount.repr
-          tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $smtLemmaStx := by proveSMTLemma)
+          -- tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $smtLemmaStx := by proveSMTLemma)
+          tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $smtLemmaStx := by sorry)
           smtLemmaCount := smtLemmaCount + 1
         -- Build a Duper call using each coreLctxLemma, necessary selector fact, and necessary SMT lemma
         let coreLctxLemmaIds ← coreLctxLemmas.mapM
