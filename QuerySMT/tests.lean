@@ -230,3 +230,7 @@ example (sum : myProd Int Int → Int)
 
 example (t : Type) (x : myType2 t) : ∃ y : t, x = const3 y ∨ x = const4 y := by
   querySMT
+
+-- Checking to make sure `querySMT` can handle dependencies in initial forall arguments
+example : ∀ α : Type, ∀ x : α, x = x := by
+  querySMT

@@ -205,23 +205,25 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
 @[tactic querySMT]
 def evalQuerySMT : Tactic
 | `(querySMT | querySMT%$stxRef $[$uords]* {$configOptions,*}) => withMainContext do
-  -- Suppose the goal is `∀ (x₁ x₂ ⋯ xₙ), G`
-  -- First, apply `intros` to put `x₁ x₂ ⋯ xₙ` into the local context,
-  --   now the goal is just `G`
   let lctxBeforeIntros ← getLCtx
   let originalMainGoal ← getMainGoal
   let goalType ← originalMainGoal.getType
   let goalType ← instantiateMVars goalType
+  -- If `goalType` has the form `∀ x1 : t1, … ∀ xn : tn, b`, first apply `intros` to put `x1 … xn` in the local context
   let numBinders := getIntrosSize goalType
-  let goalForallArgs := getForallArgumentTypes goalType
   let mut introNCoreNames : Array Name := #[]
   let mut numGoalHyps := 0
   let goalHypPrefix :=
     match getGoalHypPrefixFromConfigOptions configOptions with
     | some goalHypPrefix => goalHypPrefix
     | none => "h"
-  for goalArg in goalForallArgs do
-    if (← inferType goalArg).isProp then
+  /- Assuming `goal` has the form `∀ x1 : t1, ∀ x2 : t2, … ∀ xn : tn, b`, `goalPropHyps` is
+     an array of size `n` where the mth element in `goalPropHyps` indicates whether the mth forall
+     binder has a `Prop` type. This is used to help create `introNCoreNames` which should use existing
+     binder names for nonProp arguments and newly created names (based on `goalHypPrefix`) for Prop arguments -/
+  let goalPropHyps ← forallTelescope goalType fun xs _ => do xs.mapM (fun x => do pure (← inferType (← inferType x)).isProp)
+  for b in goalPropHyps do
+    if b then
       introNCoreNames := introNCoreNames.push (.str .anonymous (goalHypPrefix ++ numGoalHyps.repr))
       numGoalHyps := numGoalHyps + 1
     else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
