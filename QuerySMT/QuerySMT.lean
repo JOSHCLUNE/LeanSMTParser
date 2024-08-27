@@ -1,9 +1,8 @@
-import Auto
 import Duper
 -- import QuerySMT.UtilTactics -- Removing this dependency so I can enable precompileModules
 import QuerySMT.SkolemizeAll
 
-open Lean Meta Auto Elab Tactic Parser Tactic
+open Lean Meta Auto Elab Tactic Parser Tactic Duper
 
 initialize Lean.registerTraceClass `querySMT.debug
 
@@ -62,12 +61,12 @@ macro_rules
 
 /-- Given `selectorInfos` and `smtLemmas` output by the SMT solver, and `lemmas` which is output by
     `Auto.collectAllLemmas`, `getDuperCoreSMTLemmas` calls Duper and returns:
-    - The selectorInfos corresponding to selectors that appear in the final proof
     - The SMT lemmas that appear in the final proof
     - The selectors that appear in the final proof (as Strings)
-    - The hypotheses from the local context that were included by `unsatCoreDerivLeafStrings` (as FVarIds) -/
+    - The hypotheses from the local context that were included by `unsatCoreDerivLeafStrings` (as FVarIds)
+    - The proof the Duper produces -/
 def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (selectorInfos : Array (String × Expr × Nat × Expr)) (smtLemmas : List Expr)
-  (lemmas : Array Auto.Lemma) : TacticM (Array Expr × Array String × Array FVarId) := do
+  (lemmas : Array Auto.Lemma) (duperConfigOptions : Duper.ConfigurationOptions) : TacticM (Array Expr × Array String × Array FVarId × Expr) := do
   let lctx ← getLCtx
   -- Use `unsatCoreDerivLeafStrings` to filter `lemmas` so that it only contains `lemmas` in the SMT solver's unsat core
   let mut coreLemmas := #[]
@@ -117,10 +116,12 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (selectorIn
         let isFromGoal := false -- **TODO**: Figure out how to correctly compute this using `goalDecls`
         formulas := formulas.push (lem.type, ← mkAppM ``eq_true #[lem.proof], lem.params, isFromGoal)
       pure formulas.toList
-    let duperConfigOptions :=
-      { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
-        preprocessing := none, includeExpensiveRules := none, selFunction := none }
-    let prf ← runDuperPortfolioMode formulas none duperConfigOptions none
+    let prf ←
+      try
+        runDuperPortfolioMode formulas none duperConfigOptions none
+      catch e =>
+        throwError m!"getDuperCoreSMTLemmas :: Unable to use hints from external solver to reconstruct proof. " ++
+                   m!"Duper threw the following error:\n\n{e.toMessageData}"
     -- Find `smtLemmasInPrf`
     let mut smtLemmasInPrf := #[]
     let mut smtDeclIndex := 0
@@ -146,10 +147,10 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (selectorIn
         if selectorInfos.any (fun (selName, _, _, _) => (.str .anonymous (selName ++ "Fact")) == decl.userName) then continue -- Don't add selector facts to `lctxFactsInProof`
         if (← inferType decl.type).isProp && prf.containsFVar decl.fvarId then
           lctxFactsInProof := lctxFactsInProof.push decl.fvarId
-    pure (smtLemmasInPrf, necessarySelectors, lctxFactsInProof)
+    pure (smtLemmasInPrf, necessarySelectors, lctxFactsInProof, prf)
 
 /-- Copied from Lean.Meta.Tactic.Intro.lean -/
-private partial def getIntrosSize : Expr → Nat
+partial def getIntrosSize : Expr → Nat
   | .forallE _ _ b _ => getIntrosSize b + 1
   | .letE _ _ _ b _  => getIntrosSize b + 1
   | .mdata _ b       => getIntrosSize b
@@ -270,7 +271,11 @@ def evalQuerySMT : Tactic
             )
       withMainContext do -- Use updated main context so that newly added selectors are accessible
         trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
-        let (smtLemmas, necessarySelectors, coreLctxLemmas) ← getDuperCoreSMTLemmas unsatCoreDerivLeafStrings selectorInfos smtLemmas lemmas
+        let duperConfigOptions :=
+          { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
+            preprocessing := none, includeExpensiveRules := none, selFunction := none }
+        let (smtLemmas, necessarySelectors, coreLctxLemmas, _) ←
+          getDuperCoreSMTLemmas unsatCoreDerivLeafStrings selectorInfos smtLemmas lemmas duperConfigOptions
         trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
         let smtLemmasStx ← smtLemmas.mapM
           (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)

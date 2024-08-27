@@ -11,6 +11,8 @@ package QuerySMT {
 
 lean_lib QuerySMT
 
+lean_lib Hammer
+
 @[default_target]
 lean_exe «querysmt» {
   root := `Main

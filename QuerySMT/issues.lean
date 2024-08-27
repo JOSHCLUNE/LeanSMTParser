@@ -3,7 +3,8 @@ import QuerySMT
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
-set_option linter.setOption false
+-- This option gets rid of warnings associated with trace options when Mathlib is imported
+-- set_option linter.setOption false
 
 set_option trace.auto.smt.printCommands true
 set_option trace.auto.smt.result true
