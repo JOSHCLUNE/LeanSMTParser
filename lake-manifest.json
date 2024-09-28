@@ -76,7 +76,7 @@
   {"url": "https://github.com/leanprover-community/duper.git",
    "type": "git",
    "subDir": null,
-   "rev": "297362b2182c73ae211666cff0dc2479f966bbf4",
+   "rev": "98ce41723e3079d661119b5917f02a0b5c6f4997",
    "name": "Duper",
    "manifestFile": "lake-manifest.json",
    "inputRev": "dev",

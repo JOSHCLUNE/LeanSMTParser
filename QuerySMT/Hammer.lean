@@ -97,6 +97,7 @@ def withSolverOptions [Monad m] [MonadError m] [MonadWithOptions m] (configOptio
 @[rebind Auto.Native.solverFunc]
 def duperNativeSolverFunc (lemmas : Array Lemma) : MetaM Expr := do
   let formulas ← autoLemmasToFormulas lemmas
+  let formulas := formulas.map (fun f => (f.1, f.2.1, f.2.2.1, f.2.2.2, none))
   trace[hammer.debug] "Formulas passed to Duper after filtering: {formulas.map (fun x => x.1)}"
   Duper.runDuperPortfolioMode formulas .none
     { portfolioMode := true,
@@ -110,7 +111,7 @@ def duperNativeSolverFunc (lemmas : Array Lemma) : MetaM Expr := do
 
 @[tactic hammer]
 def evalHammer : Tactic
-| `(tactic| hammer%$stxRef  [$facts,*] {$configOptions,*}) => withMainContext do
+| `(tactic| hammer%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
   let configOptions ← parseConfigOptions configOptions
   let (factsContainsHammerStar, facts) := removeHammerStar facts
   let lctxBeforeIntros ← getLCtx
@@ -153,7 +154,7 @@ def evalHammer : Tactic
         let duperConfigOptions := -- We set preprocessing to `NoPreprocessing` because repreprocessing the lemmas would be redundant
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
             preprocessing := Duper.PreprocessingOption.NoPreprocessing, selFunction := none }
-        let (_, _, coreLctxLemmas, duperProof) ← getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas duperConfigOptions
+        let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ← getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas facts duperConfigOptions
         -- Build the `intros ...` tactic with appropriate names
         let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
         let mut numGoalHyps := 0
@@ -173,14 +174,13 @@ def evalHammer : Tactic
         tacticsArr := tacticsArr.push $ ← `(tactic| apply $byContradictionConst)
         -- Introduce the negated hypothesis (again, so that the unsat core can determine whether the target needs to be included in the call)
         tacticsArr := tacticsArr.push $ ← `(tactic| intro $(mkIdent (.str .anonymous configOptions.negGoalLemmaName)):term)
-        -- Build a Duper call using each coreLctxLemma
-        -- **TODO** Also need the Duper call to include all facts from `facts` that are used in the final proof
+        -- Build a Duper call using each coreLctxLemma and each coreUserInputFact
         let coreLctxLemmaIds ← coreLctxLemmas.mapM
           (fun lemFVarId => withOptions ppOptionsSetting $ PrettyPrinter.delab (.fvar lemFVarId))
-        tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds),*] {preprocessing := full})
+        tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserInputFacts),*] {preprocessing := full})
         -- Add tactic sequence suggestion
         let tacticSeq ← `(tacticSeq| $tacticsArr*)
-        -- **TODO** Add a warning if anything gets inadvertently shadowed
+        -- **TODO** Add a warning if anything gets inadvertently shadowed (e.g. by `negGoal` or an introduced goal hypothesis)
         addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
         absurd.assign duperProof
       else if configOptions.solver == "cvc5" then
