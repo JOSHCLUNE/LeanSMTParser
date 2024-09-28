@@ -15,7 +15,8 @@ syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"goalHypPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"negGoalLemmaName" " := " strLit) : QuerySMT.configOption
 
-syntax (name := querySMT) "querySMT" hints (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
+syntax querySMTStar := "*"
+syntax (name := querySMT) "querySMT" (ppSpace "[" (querySMTStar <|> term),* "]")? (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
 
 def getLemmaPrefixFromConfigOptions (configOptionsStx : TSyntaxArray `QuerySMT.configOption) : Option String := Id.run do
   for configOptionStx in configOptionsStx do
@@ -57,7 +58,9 @@ def withAutoOptions {m : Type → Type} [MonadWithOptions m] {α : Type} (x : m 
     ) x
 
 macro_rules
-| `(tactic| querySMT) => `(tactic| querySMT {})
+| `(tactic| querySMT) => `(tactic| querySMT [*] {}) -- Missing both facts and config options
+| `(tactic| querySMT [$facts,*]) => `(tactic| querySMT [$facts,*] {}) -- Mising just config options
+| `(tactic| querySMT {$configOptions,*}) => `(tactic| querySMT [*] {$configOptions,*}) -- Missing just facts
 
 /-- Given `selectorInfos` and `smtLemmas` output by the SMT solver, and `lemmas` which is output by
     `Auto.collectAllLemmas`, `getDuperCoreSMTLemmas` calls Duper and returns:
@@ -211,9 +214,34 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
+/-- Given a Syntax.TSepArray of facts provided by the user (which may include `*` to indicate that querySMT should read in the
+    full local context) `removeQuerySMTStar` returns the Syntax.TSepArray with `*` removed and a boolean that indicates whether `*`
+    was included in the original input.
+
+    Additionally, `removeQuerySMTStar` converts all of the facts in `facts` to `Auto.hintelem`s so that the output can be passed directly
+    to `Auto.collectAllLemmas` -/
+def removeQuerySMTStar (facts : Syntax.TSepArray [`QuerySMT.querySMTStar, `term] ",") : TacticM (Bool × Syntax.TSepArray `term ",") := do
+  let factsArr := facts.elemsAndSeps -- factsArr contains both the elements of facts and separators, ordered like `#[e1, s1, e2, s2, e3]`
+  let mut newFactsArr : Array Syntax := #[]
+  let mut removedStar := false
+  let mut needToRemoveSeparator := false -- If `*` is removed, its comma also needs to be removed to preserve the elemsAndSeps ordering
+  for fact in factsArr do
+    match fact with
+    | `(querySMTStar| *) =>
+      removedStar := true
+      needToRemoveSeparator := true
+    | `(ident| $fact) =>
+      if needToRemoveSeparator then needToRemoveSeparator := false -- Don't push current separator onto newFactsArr
+      else newFactsArr := newFactsArr.push $ ← `(Auto.hintelem| $fact:term)
+  if removedStar && needToRemoveSeparator then -- This can occur if `*` was the last or only element of facts
+    return (removedStar, {elemsAndSeps := newFactsArr.pop}) -- Remove the last extra separator in newFactsArr, if it exists
+  else
+    return (removedStar, {elemsAndSeps := newFactsArr})
+
 @[tactic querySMT]
 def evalQuerySMT : Tactic
-| `(querySMT | querySMT%$stxRef $hints {$configOptions,*}) => withMainContext do
+| `(querySMT | querySMT%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
+  let (factsContainsQuerySMTStar, facts) ← removeQuerySMTStar facts
   let lctxBeforeIntros ← getLCtx
   let originalMainGoal ← getMainGoal
   let goalType ← originalMainGoal.getType
@@ -257,12 +285,13 @@ def evalQuerySMT : Tactic
     let goalsAfterSkolemization ← getGoals
     withMainContext do -- Use updated main context so that `collectAllLemmas` collects from the appropriate context
       let lctxAfterSkolemization ← getLCtx
-      let hintElems ←
-        match hints with
-        | `(hints| [ $[$hs],* ]) => pure hs
-        | `(hints| ) => pure #[]
-        | _ => throwUnsupportedSyntax
-      let (lemmas, inhFacts) ← collectAllLemmas (← `(hints| [*, $hintElems,*])) #[] #[]
+      let hintElems : Syntax.TSepArray `Auto.hintelem "," := { elemsAndSeps := facts }
+      let (lemmas, inhFacts) ←
+        /- **TODO** The current approach of assuming all facts from `facts` can be treated as `hintElems` causes failures
+           when attempting to use non-Prop hints like `Set.ite`. Need to improve the current approach so that things like `Set.ite`
+           will still be supported -/
+        if factsContainsQuerySMTStar then collectAllLemmas (← `(hints| [*, $hintElems,*])) #[] #[]
+        else collectAllLemmas (← `(hints| [$hintElems,*])) #[] #[]
       let SMTHints ← withAutoOptions $ runAutoGetHints lemmas inhFacts
       let (unsatCoreDerivLeafStrings, selectorInfos, allSMTLemmas) := SMTHints
       let (preprocessFacts, theoryLemmas, instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
@@ -287,9 +316,8 @@ def evalQuerySMT : Tactic
         let duperConfigOptions :=
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
             preprocessing := none, includeExpensiveRules := none, selFunction := none }
-        let userProvidedHints ← parseHints hints
         let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
-          getDuperCoreSMTLemmas unsatCoreDerivLeafStrings selectorInfos smtLemmas lemmas userProvidedHints.terms duperConfigOptions
+          getDuperCoreSMTLemmas unsatCoreDerivLeafStrings selectorInfos smtLemmas lemmas facts duperConfigOptions
         trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
         let smtLemmasStx ← smtLemmas.mapM
           (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)
