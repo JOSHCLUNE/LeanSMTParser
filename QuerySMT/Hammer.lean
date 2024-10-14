@@ -109,6 +109,12 @@ def duperNativeSolverFunc (lemmas : Array Lemma) : MetaM Expr := do
     }
     .none
 
+def throwTranslationError (e : Exception) : TacticM α :=
+  throwError "hammer failed to preprocess facts for translation. Error: {e.toMessageData}"
+
+def throwExternalSolverError (e : Exception) : TacticM α :=
+  throwError "hammer successfully translated the problem to TPTP, but the external prover was unable to solve it. Error: {e.toMessageData}"
+
 @[tactic hammer]
 def evalHammer : Tactic
 | `(tactic| hammer%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
@@ -145,9 +151,24 @@ def evalHammer : Tactic
     withSolverOptions configOptions do
       let lemmas ← formulasToAutoLemmas formulas
       -- Calling Auto.unfoldConstAndPreprocessLemma is an essential step for the monomorphization procedure
-      let lemmas ← lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[])
-      let inhFacts ← Auto.Inhabitation.getInhFactsFromLCtx
-      let hints ← runAutoGetHints lemmas inhFacts
+      let lemmas ←
+        try
+          lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[])
+        catch e =>
+          throwTranslationError e
+      let inhFacts ←
+        try
+          Auto.Inhabitation.getInhFactsFromLCtx
+        catch e =>
+          throwTranslationError e
+      let hints ←
+        try
+          runAutoGetHints lemmas inhFacts
+        catch e =>
+          if (← e.toMessageData.toString) ==  "runAutoGetHints :: External TPTP solver unable to solve the goal" then
+            throwExternalSolverError e
+          else
+            throwTranslationError e
       if configOptions.solver == "zipperposition" then
         let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
         let unsatCoreDerivLeafStrings := hints.1

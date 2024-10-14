@@ -82,6 +82,11 @@ set_option duper.collectDatatypes false in
 example (x y z a b : Int) : (x < y → y < z → x < z) ∧ (a < b ∨ b ≤ a) := by
   querySMT
 
+-- Only works when duper.collectDatatypes is enabled
+set_option duper.collectDatatypes true in
+@[simp] theorem Bool.or_eq_true2 (a b : Bool) : ((a || b) = true) = (a = true ∨ b = true) := by
+  querySMT
+
 -------------------------------------------------------------------------------------------
 /-
 example (x y : Real) : x < y ∨ y ≤ x := by
