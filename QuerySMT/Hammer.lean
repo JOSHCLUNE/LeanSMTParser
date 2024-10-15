@@ -173,7 +173,7 @@ def evalHammer : Tactic
   withMainContext do
     let lctxAfterIntros ← getLCtx
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
-    let formulas ← collectAssumptions facts factsContainsHammerStar goalDecls
+    let formulas ← withOptions (fun o => o.set `duper.ignoreUnusableFacts true) $ collectAssumptions facts factsContainsHammerStar goalDecls
     withSolverOptions configOptions do
       let lemmas ← formulasToAutoLemmas formulas
       -- Calling Auto.unfoldConstAndPreprocessLemma is an essential step for the monomorphization procedure

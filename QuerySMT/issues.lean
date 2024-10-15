@@ -1,4 +1,5 @@
 import QuerySMT
+import Hammer
 
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
