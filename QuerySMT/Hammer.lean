@@ -115,6 +115,12 @@ def throwTranslationError (e : Exception) : TacticM α :=
 def throwExternalSolverError (e : Exception) : TacticM α :=
   throwError "hammer successfully translated the problem to TPTP, but the external prover was unable to solve it. Error: {e.toMessageData}"
 
+def throwDuperError (e : Exception) : TacticM α :=
+  throwError "hammer successfully translated the problem to TPTP and obtained an unsat core from an external prover, but was unable to reconstruct the proof. Error: {e.toMessageData}"
+
+def throwProofFitError (e : Exception) : TacticM α :=
+  throwError "hammer successfully translated the problem and reconstructed an external prover's proof, but encountered an issue in applying said proof. Error: {e.toMessageData}"
+
 @[tactic hammer]
 def evalHammer : Tactic
 | `(tactic| hammer%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
@@ -175,7 +181,11 @@ def evalHammer : Tactic
         let duperConfigOptions := -- We set preprocessing to `NoPreprocessing` because repreprocessing the lemmas would be redundant
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
             preprocessing := Duper.PreprocessingOption.NoPreprocessing, selFunction := none }
-        let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ← getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas facts duperConfigOptions
+        let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ←
+          try
+            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas facts duperConfigOptions
+          catch e =>
+            throwDuperError e
         -- Build the `intros ...` tactic with appropriate names
         let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
         let mut numGoalHyps := 0
@@ -203,7 +213,10 @@ def evalHammer : Tactic
         let tacticSeq ← `(tacticSeq| $tacticsArr*)
         -- **TODO** Add a warning if anything gets inadvertently shadowed (e.g. by `negGoal` or an introduced goal hypothesis)
         addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
-        absurd.assign duperProof
+        try
+          absurd.assign duperProof
+        catch e =>
+          throwProofFitError e
       else if configOptions.solver == "cvc5" then
         throwError "evalHammer :: cvc5 support not yet implemented"
       else
