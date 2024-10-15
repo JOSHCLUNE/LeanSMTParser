@@ -229,6 +229,7 @@ def evalHammer : Tactic
         -- Build a Duper call using each coreLctxLemma and each coreUserInputFact
         let coreLctxLemmaIds ← coreLctxLemmas.mapM
           (fun lemFVarId => withOptions ppOptionsSetting $ PrettyPrinter.delab (.fvar lemFVarId))
+        let coreUserInputFacts := coreUserInputFacts.filter (fun x => !coreLctxLemmaIds.contains x)
         tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserInputFacts),*] {preprocessing := full})
         -- Add tactic sequence suggestion
         let tacticSeq ← `(tacticSeq| $tacticsArr*)

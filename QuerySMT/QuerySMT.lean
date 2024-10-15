@@ -385,6 +385,7 @@ def evalQuerySMT : Tactic
         for necessarySelectorName in necessarySelectors do
           let necessarySelectorFactName := necessarySelectorName ++ "Fact"
           necessarySelectorFactIds := necessarySelectorFactIds.push $ mkIdent (.str .anonymous necessarySelectorFactName)
+        let coreUserProvidedLemmas := coreUserProvidedLemmas.filter (fun x => !coreLctxLemmaIds.contains x)
         tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ smtLemmaIds ++ necessarySelectorFactIds),*])
         let tacticSeq ← `(tacticSeq| $tacticsArr*)
         -- Check if any of the ids in `coreLctxLemmaIds` are shadowed. If they are, print a warning that the tactic suggestion may fail
