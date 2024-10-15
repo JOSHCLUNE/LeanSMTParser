@@ -210,7 +210,8 @@ def evalHammer : Tactic
         let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
         let mut numGoalHyps := 0
         for fvarId in goalBinders do
-          let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
+          let some localDecl := lctxAfterIntros.fvarIdToDecl.find? fvarId
+            | throwProofFitError $ ← throwError "Unable to find fvarId {Expr.fvar fvarId} in local context (after intros)"
           let ty := localDecl.type
           if (← inferType ty).isProp then
             introsNames := introsNames.push (.str .anonymous (configOptions.goalHypPrefix ++ numGoalHyps.repr))
