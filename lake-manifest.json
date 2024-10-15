@@ -85,7 +85,7 @@
    "type": "git",
    "subDir": null,
    "scope": "",
-   "rev": "a0afb1ecb87048bce820dde4e572e423ac3eb09f",
+   "rev": "e68416d3af6385760265c2fa13ee58b9b2b13972",
    "name": "Duper",
    "manifestFile": "lake-manifest.json",
    "inputRev": "dev",
