@@ -6,26 +6,72 @@ initialize Lean.registerTraceClass `hammer.debug
 
 namespace Hammer
 
+-- An option to specify the external prover that `hammer` uses
 declare_syntax_cat Hammer.solverOption (behavior := symbol)
 syntax "zipperposition" : Hammer.solverOption
 syntax "cvc5" : Hammer.solverOption
 
-def elabSolverOption [Monad m] [MonadError m] (stx : TSyntax `Hammer.solverOption) : m String :=
+-- An option to specify whether the preprocessing `simp` call uses the `only` modifier
+declare_syntax_cat Hammer.simpMode (behavior := symbol)
+syntax "default" : Hammer.simpMode
+syntax "only" : Hammer.simpMode
+
+-- An option to specify the set of facts targeted by the preprocessing `simp` call
+declare_syntax_cat Hammer.simpTarget (behavior := symbol)
+syntax "target" : Hammer.simpTarget -- Corresponds to `simp`
+syntax "all" : Hammer.simpTarget -- Corresponds to `simp_all`
+syntax "no_target" : Hammer.simpTarget -- Corresponds to skipping the preprocessing `simp` call
+
+inductive Solver where
+| zipperposition
+| cvc5
+
+inductive SimpMode where
+| default
+| only
+
+inductive SimpTarget where
+| target
+| all
+| no_target
+
+open Solver SimpMode SimpTarget
+
+def elabSolverOption [Monad m] [MonadError m] (stx : TSyntax `Hammer.solverOption) : m Solver :=
   withRef stx do
     match stx with
-    | `(solverOption| zipperposition) => return "zipperposition"
-    | `(solverOption| cvc5) => return "cvc5"
+    | `(solverOption| zipperposition) => return zipperposition
+    | `(solverOption| cvc5) => return cvc5
+    | _ => Elab.throwUnsupportedSyntax
+
+def elabSimpMode [Monad m] [MonadError m] (stx : TSyntax `Hammer.simpMode) : m SimpMode :=
+  withRef stx do
+    match stx with
+    | `(simpMode| default) => return default
+    | `(simpMode| only) => return only
+    | _ => Elab.throwUnsupportedSyntax
+
+def elabSimpTarget [Monad m] [MonadError m] (stx : TSyntax `Hammer.simpTarget) : m SimpTarget :=
+  withRef stx do
+    match stx with
+    | `(simpTarget| target) => return target
+    | `(simpTarget| all) => return all
+    | `(simpTarget| no_target) => return no_target
     | _ => Elab.throwUnsupportedSyntax
 
 declare_syntax_cat Hammer.configOption (behavior := symbol)
 syntax (&"solver" " := " Hammer.solverOption) : Hammer.configOption
 syntax (&"goalHypPrefix" " := " strLit) : Hammer.configOption
 syntax (&"negGoalLemmaName" " := " strLit) : Hammer.configOption
+syntax (&"simpMode" " := " Hammer.simpMode) : Hammer.configOption
+syntax (&"simpTarget" " := " Hammer.simpTarget) : Hammer.configOption
 
 structure ConfigurationOptions where
-  solver : String
+  solver : Solver
   goalHypPrefix : String
   negGoalLemmaName : String
+  simpMode : SimpMode
+  simpTarget : SimpTarget
 
 syntax hammerStar := "*"
 syntax (name := hammer) "hammer" (ppSpace "[" (hammerStar <|> term),* "]")? (ppSpace "{"Hammer.configOption,*,?"}")? : tactic
@@ -56,15 +102,16 @@ def removeHammerStar (facts : Syntax.TSepArray [`Hammer.hammerStar, `term] ",") 
   else
     return (removedHammerStar, {elemsAndSeps := newFactsArr})
 
-set_option pp.rawOnError true in
 def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : TacticM ConfigurationOptions := do
-  let mut solver := ""
+  let mut solverOpt := none
   let mut goalHypPrefix := ""
   let mut negGoalLemmaName := ""
+  let mut simpModeOpt := none
+  let mut simpTargetOpt := none
   for configOptionStx in configOptionsStx do
     match configOptionStx with
     | `(Hammer.configOption| solver := $solverName:Hammer.solverOption) =>
-      if solver.isEmpty then solver ← elabSolverOption solverName
+      if solverOpt.isNone then solverOpt ← elabSolverOption solverName
       else throwError "Erroneous invocation of hammer: The solver option has been specified multiple times"
     | `(Hammer.configOption| goalHypPrefix := $userGoalHypPrefix:str) =>
       if goalHypPrefix.isEmpty then goalHypPrefix := userGoalHypPrefix.getString
@@ -72,15 +119,33 @@ def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : 
     | `(Hammer.configOption| negGoalLemmaName := $userNegGoalLemmaName:str) =>
       if negGoalLemmaName.isEmpty then negGoalLemmaName := userNegGoalLemmaName.getString
       else throwError "Erroneous invocation of hammer: The negGoalLemmaName option has been specified multiple times"
+    | `(Hammer.configOption| simpMode := $simpMode:Hammer.simpMode) =>
+      if simpModeOpt.isNone then simpModeOpt ← elabSimpMode simpMode
+      else throwError "Erroneous invocation of hammer: The simpMode option has been specified multiple times"
+    | `(Hammer.configOption| simpTarget := $simpTarget:Hammer.simpTarget) =>
+      if simpTargetOpt.isNone then simpTargetOpt ← elabSimpTarget simpTarget
+      else throwError "Erroneous invocation of hammer: The simpMode option has been specified multiple times"
     | _ => throwUnsupportedSyntax
   -- Set default values for options that were not specified
-  if solver.isEmpty then solver := "zipperposition"
+  let solver :=
+    match solverOpt with
+    | none => zipperposition
+    | some solver => solver
   if goalHypPrefix.isEmpty then goalHypPrefix := "h"
   if negGoalLemmaName.isEmpty then negGoalLemmaName := "negGoal"
-  return {solver := solver, goalHypPrefix := goalHypPrefix, negGoalLemmaName := negGoalLemmaName}
+  let simpMode :=
+    match simpModeOpt with
+    | none => default
+    | some simpMode => simpMode
+  let simpTarget :=
+    match simpTargetOpt with
+    | none => all
+    | some simpTarget => simpTarget
+  return {solver := solver, goalHypPrefix := goalHypPrefix, negGoalLemmaName := negGoalLemmaName, simpMode := simpMode, simpTarget := simpTarget}
 
 def withSolverOptions [Monad m] [MonadError m] [MonadWithOptions m] (configOptions : ConfigurationOptions) (x : m α) : m α :=
-  if configOptions.solver == "zipperposition" then
+  match configOptions.solver with
+  | zipperposition =>
     withOptions
       (fun o =>
         let o := o.set `auto.tptp true
@@ -89,10 +154,7 @@ def withSolverOptions [Monad m] [MonadError m] [MonadWithOptions m] (configOptio
         let o := o.set `auto.tptp.solver.name "zipperposition"
         o.set `auto.native true
       ) x
-  else if configOptions.solver == "cvc5" then
-    throwError "cvc5 hammer support not implemented yet"
-  else
-    throwError "Hammer solver must be set to either zipperposition or cvc5"
+  | cvc5 => throwError "cvc5 hammer support not implemented yet"
 
 @[rebind Auto.Native.solverFunc]
 def duperNativeSolverFunc (lemmas : Array Lemma) : MetaM Expr := do
@@ -146,6 +208,42 @@ def evalHammer : Tactic
 | `(tactic| hammer%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
   let configOptions ← parseConfigOptions configOptions
   let (factsContainsHammerStar, facts) := removeHammerStar facts
+  let mut simpPreprocessingSuggestion := #[]
+  try
+    match configOptions.simpTarget, configOptions.simpMode with
+    | no_target, _ => pure () -- No simp preprocessing
+    | target, SimpMode.default =>
+      let goalsBeforeSimpCall ← getGoals
+      evalTactic (← `(tactic| simp [$[$facts:term],*]))
+      let goalsAfterSimpCall ← getGoals
+      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp` call to suggestion if it affected the goal state
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp [$[$facts:term],*]))
+    | target, only =>
+      let goalsBeforeSimpCall ← getGoals
+      evalTactic (← `(tactic| simp only [$[$facts:term],*]))
+      let goalsAfterSimpCall ← getGoals
+      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp` call to suggestion if it affected the goal state
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp only [$[$facts:term],*]))
+    | all, SimpMode.default =>
+      let goalsBeforeSimpCall ← getGoals
+      evalTactic (← `(tactic| simp_all [$[$facts:term],*]))
+      let goalsAfterSimpCall ← getGoals
+      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp_all` call to suggestion if it affected the goal state
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all [$[$facts:term],*]))
+    | all, only =>
+      let goalsBeforeSimpCall ← getGoals
+      evalTactic (← `(tactic| simp_all only [$[$facts:term],*]))
+      let goalsAfterSimpCall ← getGoals
+      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp_all` call to suggestion if it affected the goal state
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all only [$[$facts:term],*]))
+  catch e => -- Ignore errors arising from the fact that the `simp`/`simp_all` preprocessing call might do nothing
+    let eStr ← e.toMessageData.toString
+    if eStr == "simp made no progress" || eStr == "simp_all made no progress" then pure ()
+    else throw e
+  if (← getUnsolvedGoals).isEmpty then
+    let tacticSeq ← `(tacticSeq| $simpPreprocessingSuggestion*)
+    addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
+    return -- The simp preprocessing call is sufficient to close all goals, so no more work needs to be done
   let lctxBeforeIntros ← getLCtx
   let originalMainGoal ← getMainGoal
   let goalType ← originalMainGoal.getType
@@ -167,7 +265,7 @@ def evalHammer : Tactic
       introNCoreNames := introNCoreNames.push `_ -- `introNCore` will overwrite this with the existing binder name
   let (goalBinders, newGoal) ← introNCore originalMainGoal numBinders introNCoreNames.toList true true
   let [nngoal] ← newGoal.apply (.const ``Classical.byContradiction [])
-    | throwError "querySMT :: Unexpected result after applying Classical.byContradiction"
+    | throwError "evalHammer :: Unexpected result after applying Classical.byContradiction"
   let (_, absurd) ← MVarId.intro nngoal (.str .anonymous configOptions.negGoalLemmaName)
   replaceMainGoal [absurd]
   withMainContext do
@@ -195,8 +293,9 @@ def evalHammer : Tactic
             throwExternalSolverError e
           else
             throwTranslationError e
-      if configOptions.solver == "zipperposition" then
-        let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
+      match configOptions.solver with
+      | zipperposition =>
+        let mut tacticsArr := simpPreprocessingSuggestion -- The array of tactics that will be suggested to the user
         let unsatCoreDerivLeafStrings := hints.1
         let duperConfigOptions := -- We set preprocessing to `NoPreprocessing` because repreprocessing the lemmas would be redundant
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
@@ -239,10 +338,7 @@ def evalHammer : Tactic
           absurd.assign duperProof
         catch e =>
           throwProofFitError e
-      else if configOptions.solver == "cvc5" then
-        throwError "evalHammer :: cvc5 support not yet implemented"
-      else
-        throwError "evalHammer :: Unknown solver: {configOptions.solver}"
+      | cvc5 => throwError "evalHammer :: cvc5 support not yet implemented"
 | _ => throwUnsupportedSyntax
 
 end Hammer
