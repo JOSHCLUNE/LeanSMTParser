@@ -306,7 +306,7 @@ def evalQuerySMT : Tactic
         let existsIntroStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab (mkConst ``Exists.intro)
         evalTactic $ -- Eval to add selector and its corresponding fact to lctx
           ← `(tactic|
-              have ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
+              obtain ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
                 apply $existsIntroStx:term $selectorStx:term
                 intros
                 rfl
@@ -358,7 +358,7 @@ def evalQuerySMT : Tactic
             let existsIntroStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab (mkConst ``Exists.intro)
             tacticsArr := tacticsArr.push $
               ← `(tactic|
-                  have ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
+                  obtain ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
                     apply $existsIntroStx:term $selectorStx:term
                     intros
                     rfl
