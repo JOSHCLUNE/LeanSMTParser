@@ -157,7 +157,7 @@ def withSolverOptions [Monad m] [MonadError m] [MonadWithOptions m] (configOptio
   | cvc5 => throwError "cvc5 hammer support not implemented yet"
 
 @[rebind Auto.Native.solverFunc]
-def duperNativeSolverFunc (lemmas : Array Lemma) : MetaM Expr := do
+def duperNativeSolverFunc (lemmas : Array Lemma) (inhLemmas : Array Lemma) : MetaM Expr := do
   let formulas ← autoLemmasToFormulas lemmas
   let formulas := formulas.map (fun f => (f.1, f.2.1, f.2.2.1, f.2.2.2, none))
   trace[hammer.debug] "Formulas passed to Duper after filtering: {formulas.map (fun x => x.1)}"
