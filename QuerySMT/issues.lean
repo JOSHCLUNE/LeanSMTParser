@@ -89,6 +89,16 @@ set_option duper.collectDatatypes true in
   querySMT
 
 -------------------------------------------------------------------------------------------
+-- cvc5 can solve this but Duper can't reconstruct the proof (presumably because of <, ≥, and negative stuff)
+
+set_option auto.smt true in
+set_option auto.smt.dumpHints true in
+set_option auto.smt.solver.name "cvc5" in
+example (x y : Int) (h : x ≥ 0) (h2 : x < y) : x * x < y * y := by
+  -- autoGetHints works
+  sorry -- `querySMT` fails because Duper can't reconstruct the proof
+
+-------------------------------------------------------------------------------------------
 /-
 example (x y : Real) : x < y ∨ y ≤ x := by
   querySMT -- Fails because lean-auto doesn't depend on Mathlib and therefore doesn't know about Reals

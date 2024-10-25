@@ -11,11 +11,6 @@ declare_syntax_cat Hammer.solverOption (behavior := symbol)
 syntax "zipperposition" : Hammer.solverOption
 syntax "cvc5" : Hammer.solverOption
 
--- An option to specify whether the preprocessing `simp` call uses the `only` modifier
-declare_syntax_cat Hammer.simpMode (behavior := symbol)
-syntax "default" : Hammer.simpMode
-syntax "only" : Hammer.simpMode
-
 -- An option to specify the set of facts targeted by the preprocessing `simp` call
 declare_syntax_cat Hammer.simpTarget (behavior := symbol)
 syntax "target" : Hammer.simpTarget -- Corresponds to `simp`
@@ -26,29 +21,18 @@ inductive Solver where
 | zipperposition
 | cvc5
 
-inductive SimpMode where
-| default
-| only
-
 inductive SimpTarget where
 | target
 | all
 | no_target
 
-open Solver SimpMode SimpTarget
+open Solver SimpTarget
 
 def elabSolverOption [Monad m] [MonadError m] (stx : TSyntax `Hammer.solverOption) : m Solver :=
   withRef stx do
     match stx with
     | `(solverOption| zipperposition) => return zipperposition
     | `(solverOption| cvc5) => return cvc5
-    | _ => Elab.throwUnsupportedSyntax
-
-def elabSimpMode [Monad m] [MonadError m] (stx : TSyntax `Hammer.simpMode) : m SimpMode :=
-  withRef stx do
-    match stx with
-    | `(simpMode| default) => return default
-    | `(simpMode| only) => return only
     | _ => Elab.throwUnsupportedSyntax
 
 def elabSimpTarget [Monad m] [MonadError m] (stx : TSyntax `Hammer.simpTarget) : m SimpTarget :=
@@ -63,14 +47,12 @@ declare_syntax_cat Hammer.configOption (behavior := symbol)
 syntax (&"solver" " := " Hammer.solverOption) : Hammer.configOption
 syntax (&"goalHypPrefix" " := " strLit) : Hammer.configOption
 syntax (&"negGoalLemmaName" " := " strLit) : Hammer.configOption
-syntax (&"simpMode" " := " Hammer.simpMode) : Hammer.configOption
 syntax (&"simpTarget" " := " Hammer.simpTarget) : Hammer.configOption
 
 structure ConfigurationOptions where
   solver : Solver
   goalHypPrefix : String
   negGoalLemmaName : String
-  simpMode : SimpMode
   simpTarget : SimpTarget
 
 syntax hammerStar := "*"
@@ -106,7 +88,6 @@ def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : 
   let mut solverOpt := none
   let mut goalHypPrefix := ""
   let mut negGoalLemmaName := ""
-  let mut simpModeOpt := none
   let mut simpTargetOpt := none
   for configOptionStx in configOptionsStx do
     match configOptionStx with
@@ -119,9 +100,6 @@ def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : 
     | `(Hammer.configOption| negGoalLemmaName := $userNegGoalLemmaName:str) =>
       if negGoalLemmaName.isEmpty then negGoalLemmaName := userNegGoalLemmaName.getString
       else throwError "Erroneous invocation of hammer: The negGoalLemmaName option has been specified multiple times"
-    | `(Hammer.configOption| simpMode := $simpMode:Hammer.simpMode) =>
-      if simpModeOpt.isNone then simpModeOpt ← elabSimpMode simpMode
-      else throwError "Erroneous invocation of hammer: The simpMode option has been specified multiple times"
     | `(Hammer.configOption| simpTarget := $simpTarget:Hammer.simpTarget) =>
       if simpTargetOpt.isNone then simpTargetOpt ← elabSimpTarget simpTarget
       else throwError "Erroneous invocation of hammer: The simpMode option has been specified multiple times"
@@ -133,15 +111,11 @@ def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : 
     | some solver => solver
   if goalHypPrefix.isEmpty then goalHypPrefix := "h"
   if negGoalLemmaName.isEmpty then negGoalLemmaName := "negGoal"
-  let simpMode :=
-    match simpModeOpt with
-    | none => default
-    | some simpMode => simpMode
   let simpTarget :=
     match simpTargetOpt with
     | none => all
     | some simpTarget => simpTarget
-  return {solver := solver, goalHypPrefix := goalHypPrefix, negGoalLemmaName := negGoalLemmaName, simpMode := simpMode, simpTarget := simpTarget}
+  return {solver := solver, goalHypPrefix := goalHypPrefix, negGoalLemmaName := negGoalLemmaName, simpTarget := simpTarget}
 
 def withSolverOptions [Monad m] [MonadError m] [MonadWithOptions m] (configOptions : ConfigurationOptions) (x : m α) : m α :=
   match configOptions.solver with
@@ -218,32 +192,20 @@ def evalHammer : Tactic
   let (factsContainsHammerStar, facts) := removeHammerStar facts
   let mut simpPreprocessingSuggestion := #[]
   try
-    match configOptions.simpTarget, configOptions.simpMode with
-    | no_target, _ => pure () -- No simp preprocessing
-    | target, SimpMode.default =>
+    match configOptions.simpTarget with
+    | no_target => pure () -- No simp preprocessing
+    | target =>
       let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp [$[$facts:term],*]))
+      evalTactic (← `(tactic| simp))
       let goalsAfterSimpCall ← getGoals
       if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp [$[$facts:term],*]))
-    | target, only =>
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp))
+    | all =>
       let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp only [$[$facts:term],*]))
-      let goalsAfterSimpCall ← getGoals
-      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp only [$[$facts:term],*]))
-    | all, SimpMode.default =>
-      let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp_all [$[$facts:term],*]))
+      evalTactic (← `(tactic| simp_all))
       let goalsAfterSimpCall ← getGoals
       if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp_all` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all [$[$facts:term],*]))
-    | all, only =>
-      let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp_all only [$[$facts:term],*]))
-      let goalsAfterSimpCall ← getGoals
-      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp_all` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all only [$[$facts:term],*]))
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all))
   catch e => -- Ignore errors arising from the fact that the `simp`/`simp_all` preprocessing call might do nothing
     let eStr ← e.toMessageData.toString
     if eStr == "simp made no progress" || eStr == "simp_all made no progress" then pure ()
