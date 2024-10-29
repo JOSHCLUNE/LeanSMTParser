@@ -1,7 +1,7 @@
 import Lean
 import Mathlib.Tactic.PushNeg
 
-open Lean Meta Elab Tactic Parser Tactic Core Mathlib.Tactic.PushNeg
+open Lean Meta Elab Tactic Parser Tactic Core Mathlib.Tactic
 
 namespace Skolemize
 
@@ -30,6 +30,26 @@ theorem Skolem.spec {p : α → Prop} (x : α) (hp : ∃ a, p a) :
   simp only [Skolem.some, hp]
   exact Classical.choose_spec _
 
+theorem both_or_neither_of_iff {p q : Prop} (h : p ↔ q) : (p ∧ q) ∨ (¬p ∧ ¬q) := by
+  rw [h, and_self, and_self]
+  exact em q
+
+theorem one_or_other_of_ne {p q : Prop} (h : p ≠ q) : (p ∧ ¬q) ∨ (¬p ∧ q) := by
+  by_cases hp : p
+  . simp only [eq_true hp, ne_eq, eq_iff_iff, true_iff] at h
+    simp only [eq_true hp, h, not_false_eq_true, and_self, not_true_eq_false, or_false]
+  . simp only [eq_false hp, ne_eq, eq_iff_iff, false_iff, not_not] at h
+    simp only [eq_false hp, h, not_true_eq_false, and_self, not_false_eq_true, or_true]
+
+theorem exists_of_not_forall {p : α → Prop} : (¬∀ x, p x) → ∃ x, ¬p x := Iff.mp not_forall
+theorem not_and_or_forward {a : Prop} {b : Prop} : ¬(a ∧ b) → ¬a ∨ ¬b := Iff.mp not_and_or
+theorem not_or_forward {p : Prop} {q : Prop} : ¬(p ∨ q) → ¬p ∧ ¬q := Iff.mp not_or
+theorem of_prop_not_eq {p : Prop} {q : Prop} : ¬(p = q) → (¬p) = q := by
+  by_cases hp : p
+  . simp only [eq_true hp, eq_iff_iff, true_iff, not_true_eq_false, false_iff, imp_self]
+  . simp only [eq_false hp, eq_iff_iff, false_iff, not_not, not_false_eq_true, true_iff, imp_self]
+theorem not_ne_iff_forward {α : Sort u_1} {a : α} {b : α} : ¬a ≠ b → a = b := Iff.mp not_ne_iff
+
 /-- `skolemizeExists` takes as input:
     - `e` a term whose type has the form `∃ x : α, p x` where:
       - `α : Prop`
@@ -42,7 +62,10 @@ theorem Skolem.spec {p : α → Prop} (x : α) (hp : ∃ a, p a) :
 
     **NOTE** The `Skolem.some` approach isn't compatible with types not known to be inhabited, and
      the fallback `Classical.choose` approach isn't compatible with the `Or` case of `skolemizeOne`.
-     So this can fail when we need to skolemize a type not known to be inhabited inside of an `Or` expression. -/
+     So this can fail when we need to skolemize a type not known to be inhabited inside of an `Or` expression.
+
+     **TODO** Modify how `skolemizeExists` interacts with `skolemizeOne` and `skolemizeAndReplace` so that
+     if both approaches fail, a new goal for the user to fill can be created. -/
 def skolemizeExists (e : Expr) (forallFVars : Array Expr) (α p : Expr) : TacticM (Expr × Expr) := do
   try -- Try to use the `Skolem.some` approach first since it's compatible with Or
     -- `defaultValue : α`
@@ -62,6 +85,24 @@ def skolemizeExists (e : Expr) (forallFVars : Array Expr) (α p : Expr) : Tactic
     -- `generalizedSkolemWitness : ∀ [forallFVars] → α`
     let generalizedSkolemWitness ← mkLambdaFVars forallFVars originalSkolemWitness
     return (generalizedSkolemWitness, originalSkolemWitnessSpec)
+
+/-- `pushNegation` takes `e : ¬t` and checks if `t` has a logical symbol at its head that the negation can be
+    pushed down into (e.g. if `t` = `p ∧ q`, then `¬t` can be transformed into `¬p ∨ ¬q`). If so, then `pushNegation`
+    returns `e' : t'` where `t'` is equivalent to `t` but has had its negation pushed inwards. -/
+def pushNegation (e : Expr) : TacticM (Option Expr) := do
+  let t ← instantiateMVars $ ← inferType e
+  match t with
+  | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``Exists _) _) _) => mkAppM ``forall_not_of_not_exists #[e]
+  | Expr.app (Expr.const ``Not _) (Expr.forallE _ _ _ _) => mkAppM ``Skolemize.exists_of_not_forall #[e]
+  | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``And _) _) _) => mkAppM ``not_and_or_forward #[e]
+  | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``Or _) _) _) => mkAppM ``not_or_forward #[e]
+  | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``Iff _) _) _)  => mkAppM ``not_iff #[e]
+  | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.app (Expr.const ``Eq _) eqType) _) _) =>
+    if eqType.isProp then mkAppM ``of_prop_not_eq #[e]
+    else return none
+  | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.app (Expr.const ``Ne _) _) _) _) => mkAppM ``not_ne_iff_forward #[e]
+  | Expr.app (Expr.const ``Not _) (Expr.app (Expr.const ``Not _) _) => mkAppM ``of_not_not #[e]
+  | _ => return none
 
 /-- `skolemizeOne` takes as input:
     - `e` of type `t` (where `t : Prop` has had all of its metavariables instantiated). It is assumed that `push_neg`
@@ -121,9 +162,42 @@ partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (f
         let left ← mkLambdaFVars #[e1] $ ← mkAppM ``Or.intro_left #[t2', e1']
         let right ← mkLambdaFVars #[e2] $ ← mkAppM ``Or.intro_right #[t1', e2']
         return (generatedSkolems ++ newE1Skolems ++ newE2Skolems, ← mkAppOptM ``Or.elim #[none, none, skolemizedOr, e, left, right])
+  | Expr.app (Expr.app (Expr.const ``Iff _) _) _  =>
+    let e' ← mkAppM ``Skolemize.both_or_neither_of_iff #[e]
+    let (generatedSkolems', e') ← skolemizeOne e' generatedSkolems forallFVars
+    if generatedSkolems == generatedSkolems' then
+      return (generatedSkolems, e) -- No need to transform `iff` if no further skolemization will be done
+    else
+      return (generatedSkolems', e')
+  | Expr.app (Expr.app (Expr.app (Expr.const ``Eq _) eqType) _) _ =>
+    if eqType.isProp then -- Treat `=` like `iff` when possible
+      let e' ← mkAppM ``iff_of_eq #[e]
+      let (generatedSkolems', e') ← skolemizeOne e' generatedSkolems forallFVars
+      if generatedSkolems == generatedSkolems' then
+        return (generatedSkolems, e) -- No need to transform `Eq` if no further skolemization will be done
+      else
+        return (generatedSkolems', e')
+    else
+      return (generatedSkolems, e)
+  | Expr.app (Expr.app (Expr.app (Expr.const ``Ne _) neType) _) _ =>
+    if neType.isProp then -- Replace `≠` if possible
+      let e' ← mkAppM ``one_or_other_of_ne #[e]
+      let (generatedSkolems', e') ← skolemizeOne e' generatedSkolems forallFVars
+      if generatedSkolems == generatedSkolems' then
+        return (generatedSkolems, e) -- No need to transform `Ne` if no further skolemization will be done
+      else
+        return (generatedSkolems', e')
+    else
+      return (generatedSkolems, e)
   | Expr.app (Expr.const ``Not _) _ =>
-    -- throwError "Still figuring out not case (need to handle negations missed by push_neg that come from translated implications)"
-    return (generatedSkolems, e) -- `push_neg` ensured that `e` has no binders
+    match ← pushNegation e with
+    | some e' =>
+      let (generatedSkolems', e') ← skolemizeOne e' generatedSkolems forallFVars
+      if generatedSkolems == generatedSkolems' then
+        return (generatedSkolems, e) -- No need to push negation inward if no further skolemization will be done
+      else
+        return (generatedSkolems', e')
+    | none => return (generatedSkolems, e)
   | _ => return (generatedSkolems, e)
 
 /-- Given `fVarId` which is part of the local context of `mvarId`, finds the `ldecl` corresponding to `fVarId` and checks
@@ -131,99 +205,91 @@ partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (f
     new goal which does not include `fVarId`, but does include a skolemized version of the hypothesis. Additionally,
     `skolemizeOne` will assign to `mvarId` and generate a new mvarId which is returned (along with an updated skolemIdx) -/
 def skolemizeAndReplace (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : String) (skolemStartIdx : Nat) : TacticM (MVarId × Nat) := do
-  let s ← Tactic.saveState
-  let originalMVarId := mvarId
   mvarId.withContext do
-    let fvarType ← instantiateMVars (← inferType (.fvar fVarId))
-    let pushNegRes ← withOptions (fun o => o.set `push_neg.use_distrib true) $ pushNegCore fvarType
-    let some (fVarId, mvarId) ← applySimpResultToLocalDecl mvarId fVarId pushNegRes False | failure
-    mvarId.withContext do -- Enter `mvarId`'s context because `mvarId` was changed by `push_neg` call
-      let (skolemFunctions, newLemmaProof) ← skolemizeOne (.fvar fVarId) #[] #[]
-      if skolemFunctions.isEmpty then
-        restoreState s -- Don't call `push_neg` on `fVarId` if it does not lead to skolemizing anything
-        return (originalMVarId, skolemStartIdx)
-      let numSkolems := skolemFunctions.size
-      let skolemFunctionTys ← skolemFunctions.mapM (fun (f, _) => inferType f)
-      let newLemma ← inferType newLemmaProof
-      let mvarTarget ← instantiateMVars (← mvarId.getType)
-      let mvarTag ← mvarId.getTag
-      let skolemTypesDeclInfo : Array (Name × (Array Expr → TacticM Expr)) := Id.run do
-        let mut curSkolemIdx := skolemStartIdx
-        let mut res := #[]
-        for skolemFunctionTy in skolemFunctionTys do
-          let skolemName := skolemPrefix ++ curSkolemIdx.repr
-          let skolemTypeConstructor : Array Expr → TacticM Expr := fun _ => pure skolemFunctionTy
-          res := res.push (.str .anonymous skolemName, skolemTypeConstructor)
-          curSkolemIdx := curSkolemIdx + 1
-        return res
-      let newGoal ←
-        withLocalDeclsD skolemTypesDeclInfo fun skolemFVars => do
-          let skolemEqualitiesDeclInfo : Array (Name × (Array Expr → TacticM Expr)) ← do
-            let mut curSkolemIdx := skolemStartIdx
-            let mut res := #[]
-            for (skolemFVarsIdx, (skolemFunction, originalBinderType)) in skolemFunctions.mapIdx (fun idx f => (idx, f)) do
-              let skolemFunctionTy := skolemFunctionTys[skolemFVarsIdx]!
-              let numForallBindersInOriginalType ← forallTelescope originalBinderType $ fun xs _ => do pure xs.size
-              let maxTelescopeBinders ← forallTelescope skolemFunctionTy $ fun xs _ => do pure (xs.size - numForallBindersInOriginalType)
-              let equalityName := skolemPrefix ++ curSkolemIdx.repr ++ "_def"
-              let equalityConstructor : Array Expr → TacticM Expr := fun _ =>
-                forallBoundedTelescope skolemFunctionTy maxTelescopeBinders $ fun xs _ => do
-                  let skolemFVarWithArgs ← mkAppM' skolemFVars[skolemFVarsIdx]! xs
-                  let skolemFVarWithArgs :=
-                    match (← betaReduce skolemFVarWithArgs).etaExpanded? with
-                    | some skolemFVarWithArgs => skolemFVarWithArgs
-                    | none => skolemFVarWithArgs
-                  let instantiatedSkolemFunction ← mkAppM' skolemFunction xs
-                  let instantiatedSkolemFunction :=
-                    match (← betaReduce instantiatedSkolemFunction).etaExpanded? with
-                    | some instantiatedSkolemFunction => instantiatedSkolemFunction
-                    | none => instantiatedSkolemFunction
-                  mkForallFVars xs $ ← mkAppM ``Eq #[skolemFVarWithArgs, instantiatedSkolemFunction]
-              res := res.push (.str .anonymous equalityName, equalityConstructor)
-              curSkolemIdx := curSkolemIdx + 1
-            pure res
-          withLocalDeclsD skolemEqualitiesDeclInfo fun skolemDefFVars => do
-            withLocalDeclD `_ newLemma fun newLemmaFVar =>
-              mkForallFVars ((skolemFVars ++ skolemDefFVars).push newLemmaFVar) mvarTarget
-      let newGoalMVar ← mkFreshExprSyntheticOpaqueMVar newGoal mvarTag
-      let mut rflArray : Array Expr := #[]
-      for ((skolemFunction, originalBinderType), skolemFunctionTy) in skolemFunctions.zip skolemFunctionTys do
-        let numForallBindersInOriginalType ← forallTelescope originalBinderType $ fun xs _ => do pure xs.size
-        let maxTelescopeBinders ← forallTelescope skolemFunctionTy $ fun xs _ => do pure (xs.size - numForallBindersInOriginalType)
-        let skolemRfl ←
-          forallBoundedTelescope skolemFunctionTy maxTelescopeBinders $ fun xs _ => do
-            let instantiatedSkolemFunction ← mkAppM' skolemFunction xs
-            let instantiatedSkolemFunction :=
-              match (← betaReduce instantiatedSkolemFunction).etaExpanded? with
-              | some instantiatedSkolemFunction => instantiatedSkolemFunction
-              | none => instantiatedSkolemFunction
-            mkLambdaFVars xs $ ← mkAppOptM ``rfl #[none, some instantiatedSkolemFunction]
-        rflArray := rflArray.push skolemRfl
-      mvarId.assign (← reduceAll (← mkAppM' newGoalMVar (((skolemFunctions.map Prod.fst) ++ rflArray).push newLemmaProof)))
-      let newGoalMVarId := newGoalMVar.mvarId!
-      let (skolemNames, skolemDefNames) := Id.run do
-        let mut skolemNames := #[]
-        let mut skolemDefNames := #[]
-        for skolemIdx in [skolemStartIdx:skolemStartIdx + skolemFunctions.size] do
-          skolemNames := skolemNames.push (.str .anonymous (skolemPrefix ++ skolemIdx.repr))
-          skolemDefNames := skolemDefNames.push (.str .anonymous (skolemPrefix ++ skolemIdx.repr ++ "_def"))
-        pure (skolemNames.toList, skolemDefNames.toList)
-      let (introducedFVars, newGoalMVarId) ←
-        newGoalMVarId.introN (2 * numSkolems + 1) (skolemNames ++ skolemDefNames ++ [(← FVarId.getDecl fVarId).userName])
-      let newGoalMVarIds ← Tactic.run newGoalMVarId $
-        do
-          let skolemizedLemmaFVar := introducedFVars[2 * numSkolems]!
-          let skolemizedLemmaTerm ← PrettyPrinter.delab (.fvar skolemizedLemmaFVar)
-          -- Iterate backwards so that the most recent skolem function (which has the fewest dependencies) is rewritten first
-          for skolemIdx in (List.range skolemFunctions.size).reverse do
-            let skolemDefFVar := introducedFVars[skolemIdx + numSkolems]!
-            let skolemDefTerm ← PrettyPrinter.delab (.fvar skolemDefFVar)
-            evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))
-            evalTactic $ ← `(tactic| clear $skolemDefTerm) -- Clear skolemDef because it was only created for the above rewrite
-      let [newGoalMVarId] := newGoalMVarIds
-        | throwError "skolemizeAndReplace :: Failed to skolemize {Expr.fvar fVarId}"
-      let newGoalMVarId ← newGoalMVarId.clear fVarId
-      return (newGoalMVarId, skolemStartIdx + numSkolems)
+    let (skolemFunctions, newLemmaProof) ← skolemizeOne (.fvar fVarId) #[] #[]
+    if skolemFunctions.isEmpty then return (mvarId, skolemStartIdx)
+    let numSkolems := skolemFunctions.size
+    let skolemFunctionTys ← skolemFunctions.mapM (fun (f, _) => inferType f)
+    let newLemma ← inferType newLemmaProof
+    let mvarTarget ← instantiateMVars (← mvarId.getType)
+    let mvarTag ← mvarId.getTag
+    let skolemTypesDeclInfo : Array (Name × (Array Expr → TacticM Expr)) := Id.run do
+      let mut curSkolemIdx := skolemStartIdx
+      let mut res := #[]
+      for skolemFunctionTy in skolemFunctionTys do
+        let skolemName := skolemPrefix ++ curSkolemIdx.repr
+        let skolemTypeConstructor : Array Expr → TacticM Expr := fun _ => pure skolemFunctionTy
+        res := res.push (.str .anonymous skolemName, skolemTypeConstructor)
+        curSkolemIdx := curSkolemIdx + 1
+      return res
+    let newGoal ←
+      withLocalDeclsD skolemTypesDeclInfo fun skolemFVars => do
+        let skolemEqualitiesDeclInfo : Array (Name × (Array Expr → TacticM Expr)) ← do
+          let mut curSkolemIdx := skolemStartIdx
+          let mut res := #[]
+          for (skolemFVarsIdx, (skolemFunction, originalBinderType)) in skolemFunctions.mapIdx (fun idx f => (idx, f)) do
+            let skolemFunctionTy := skolemFunctionTys[skolemFVarsIdx]!
+            let numForallBindersInOriginalType ← forallTelescope originalBinderType $ fun xs _ => do pure xs.size
+            let maxTelescopeBinders ← forallTelescope skolemFunctionTy $ fun xs _ => do pure (xs.size - numForallBindersInOriginalType)
+            let equalityName := skolemPrefix ++ curSkolemIdx.repr ++ "_def"
+            let equalityConstructor : Array Expr → TacticM Expr := fun _ =>
+              forallBoundedTelescope skolemFunctionTy maxTelescopeBinders $ fun xs _ => do
+                let skolemFVarWithArgs ← mkAppM' skolemFVars[skolemFVarsIdx]! xs
+                let skolemFVarWithArgs :=
+                  match (← betaReduce skolemFVarWithArgs).etaExpanded? with
+                  | some skolemFVarWithArgs => skolemFVarWithArgs
+                  | none => skolemFVarWithArgs
+                let instantiatedSkolemFunction ← mkAppM' skolemFunction xs
+                let instantiatedSkolemFunction :=
+                  match (← betaReduce instantiatedSkolemFunction).etaExpanded? with
+                  | some instantiatedSkolemFunction => instantiatedSkolemFunction
+                  | none => instantiatedSkolemFunction
+                mkForallFVars xs $ ← mkAppM ``Eq #[skolemFVarWithArgs, instantiatedSkolemFunction]
+            res := res.push (.str .anonymous equalityName, equalityConstructor)
+            curSkolemIdx := curSkolemIdx + 1
+          pure res
+        withLocalDeclsD skolemEqualitiesDeclInfo fun skolemDefFVars => do
+          withLocalDeclD `_ newLemma fun newLemmaFVar =>
+            mkForallFVars ((skolemFVars ++ skolemDefFVars).push newLemmaFVar) mvarTarget
+    let newGoalMVar ← mkFreshExprSyntheticOpaqueMVar newGoal mvarTag
+    let mut rflArray : Array Expr := #[]
+    for ((skolemFunction, originalBinderType), skolemFunctionTy) in skolemFunctions.zip skolemFunctionTys do
+      let numForallBindersInOriginalType ← forallTelescope originalBinderType $ fun xs _ => do pure xs.size
+      let maxTelescopeBinders ← forallTelescope skolemFunctionTy $ fun xs _ => do pure (xs.size - numForallBindersInOriginalType)
+      let skolemRfl ←
+        forallBoundedTelescope skolemFunctionTy maxTelescopeBinders $ fun xs _ => do
+          let instantiatedSkolemFunction ← mkAppM' skolemFunction xs
+          let instantiatedSkolemFunction :=
+            match (← betaReduce instantiatedSkolemFunction).etaExpanded? with
+            | some instantiatedSkolemFunction => instantiatedSkolemFunction
+            | none => instantiatedSkolemFunction
+          mkLambdaFVars xs $ ← mkAppOptM ``rfl #[none, some instantiatedSkolemFunction]
+      rflArray := rflArray.push skolemRfl
+    mvarId.assign (← reduceAll (← mkAppM' newGoalMVar (((skolemFunctions.map Prod.fst) ++ rflArray).push newLemmaProof)))
+    let newGoalMVarId := newGoalMVar.mvarId!
+    let (skolemNames, skolemDefNames) := Id.run do
+      let mut skolemNames := #[]
+      let mut skolemDefNames := #[]
+      for skolemIdx in [skolemStartIdx:skolemStartIdx + skolemFunctions.size] do
+        skolemNames := skolemNames.push (.str .anonymous (skolemPrefix ++ skolemIdx.repr))
+        skolemDefNames := skolemDefNames.push (.str .anonymous (skolemPrefix ++ skolemIdx.repr ++ "_def"))
+      pure (skolemNames.toList, skolemDefNames.toList)
+    let (introducedFVars, newGoalMVarId) ←
+      newGoalMVarId.introN (2 * numSkolems + 1) (skolemNames ++ skolemDefNames ++ [(← FVarId.getDecl fVarId).userName])
+    let newGoalMVarIds ← Tactic.run newGoalMVarId $
+      do
+        let skolemizedLemmaFVar := introducedFVars[2 * numSkolems]!
+        let skolemizedLemmaTerm ← PrettyPrinter.delab (.fvar skolemizedLemmaFVar)
+        -- Iterate backwards so that the most recent skolem function (which has the fewest dependencies) is rewritten first
+        for skolemIdx in (List.range skolemFunctions.size).reverse do
+          let skolemDefFVar := introducedFVars[skolemIdx + numSkolems]!
+          let skolemDefTerm ← PrettyPrinter.delab (.fvar skolemDefFVar)
+          evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))
+          evalTactic $ ← `(tactic| clear $skolemDefTerm) -- Clear skolemDef because it was only created for the above rewrite
+    let [newGoalMVarId] := newGoalMVarIds
+      | throwError "skolemizeAndReplace :: Failed to skolemize {Expr.fvar fVarId}"
+    let newGoalMVarId ← newGoalMVarId.clear fVarId
+    return (newGoalMVarId, skolemStartIdx + numSkolems)
 
 @[tactic skolemizeAll]
 def evalSkolemizeAll : Tactic
@@ -314,7 +380,33 @@ example (p : Prop) (f : Nat → Prop) (h : p → ∃ x : Nat, f x) : p → ∃ x
   . exfalso
     exact h hp
 
-example (p : Prop) (f : Nat → Prop) (h : (∀ x : Nat, f x) → p) : (∀ x : Nat, f x) → p := by
-  -- **TODO** We should skolemize `h` but we don't because we don't push the Not that results from clausifying the implication
+example (p : Prop) (f : Nat → Prop) (h : p = ∃ x : Nat, f x) : p = ∃ x : Nat, f x := by
   skolemizeAll
-  sorry
+  rcases h with h | h
+  . simp [eq_true h.1]
+    apply Exists.intro sk0
+    exact h.2
+  . simp [eq_false h.1]
+    simp at h
+    exact h.2
+
+example (p : Prop) (f : Nat → Prop) (h : p ≠ ∃ x : Nat, f x) : p ≠ ∃ x : Nat, f x := by
+  intro g
+  skolemizeAll
+  rcases h with h | h
+  . rcases g with g | g
+    . simp only [not_exists] at h
+      exact h.2 sk1 g.2
+    . exact g.1 h.1
+  . rcases g with g | g
+    . exact h.1 g.1
+    . simp only [not_exists] at g
+      exact g.2 sk0 h.2
+
+example (p : Prop) (f : Nat → Prop) (h : (∀ x : Nat, f x) → p) : (∀ x : Nat, f x) → p := by
+  skolemizeAll
+  intro x
+  rcases h with h | h
+  . exact h
+  . exfalso
+    exact h (x sk0)
