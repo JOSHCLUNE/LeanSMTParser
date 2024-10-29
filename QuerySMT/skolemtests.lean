@@ -8,7 +8,7 @@ set_option auto.smt.dumpHints true
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
-set_option linter.setOption false
+-- set_option linter.setOption false
 
 set_option trace.auto.smt.printCommands true
 set_option trace.auto.smt.result true
@@ -152,13 +152,13 @@ example (h : ∀ x : Int, ∃ y : Int, ∃ z : Int, y < x ∧ x < z) :
   intro x
   apply Exists.intro (x - 1)
   apply Exists.intro (x + 1)
-  simp
+  omega
 
 example (h : ∀ x : Int, ∃ y : Int, y < x) : ∃ z : Int, z < 0 := by
   skolemizeAll
   have smtLemma0 : (¬∃ smtd_2, smtd_2 < Int.ofNat 0) → False := by
     simp
-    tauto
+    exact ⟨-1, by decide⟩
   duper [*]
 
 example (P : Int → Prop) (Q : Prop) (h : Q ∧ ∃ x : Int, P x) :
