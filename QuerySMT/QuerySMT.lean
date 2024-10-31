@@ -46,6 +46,55 @@ def getNegGoalLemmaNameFromConfigOptions (configOptionsStx : TSyntaxArray `Query
     | _ => continue
   return none
 
+def throwSkolemizationError (e : Exception) : TacticM α :=
+  throwError "querySMT encountered an error during skolemization. Error: {e.toMessageData}"
+
+def throwTranslationError (e : Exception) : TacticM α :=
+  throwError "querySMT encountered an error translating the inital goal to the SMT format. Error: {e.toMessageData}"
+
+def throwSolverError (e : Exception) : TacticM α :=
+  throwError "querySMT's external solver was unable to find a proof. Error: {e.toMessageData}"
+
+def throwHintParsingError (e : Exception) : TacticM α :=
+  throwError "querySMT encountered an error parsing the hints output by the external solver. Error: {e.toMessageData}"
+
+def throwSelectorConstructionError (e : Exception) : TacticM α :=
+  throwError "querySMT encountered an error constructing a datatype's selectors. Error: {e.toMessageData}"
+
+def throwDuperError (e : Exception) : TacticM α :=
+  throwError "querySMT encountered an error using Duper to reconstruct the external solver's proof. Error: {e.toMessageData}"
+
+def throwProofFitError (e : Exception) : TacticM α :=
+  throwError "querySMT successfully translated the problem and reconstructed an external prover's proof, but encountered an issue in applying said proof. Error: {e.toMessageData}"
+
+def errorIsSkolemizationError (e : Exception) : IO Bool := do
+  let eStr ← e.toMessageData.toString
+  return "querySMT encountered an error during skolemization.".isPrefixOf eStr
+
+def errorIsTranslationError (e : Exception) : IO Bool := do
+  let eStr ← e.toMessageData.toString
+  return "querySMT encountered an error translating the inital goal to the SMT format.".isPrefixOf eStr
+
+def errorIsSolverError (e : Exception) : IO Bool := do
+  let eStr ← e.toMessageData.toString
+  return "querySMT's external solver was unable to find a proof.".isPrefixOf eStr
+
+def errorIsHintParsingError (e : Exception) : IO Bool := do
+  let eStr ← e.toMessageData.toString
+  return "querySMT encountered an error parsing the hints output by the external solver.".isPrefixOf eStr
+
+def errorIsSelectorConstructionError (e : Exception) : IO Bool := do
+  let eStr ← e.toMessageData.toString
+  return "querySMT encountered an error constructing a datatype's selectors.".isPrefixOf eStr
+
+def errorIsDuperError (e : Exception) : IO Bool := do
+  let eStr ← e.toMessageData.toString
+  return "querySMT encountered an error using Duper to reconstruct the external solver's proof.".isPrefixOf eStr
+
+def errorIsProofFitError (e : Exception) : IO Bool := do
+  let eStr ← e.toMessageData.toString
+  return "querySMT successfully translated the problem and reconstructed an external prover's proof, but encountered an issue in applying said proof.".isPrefixOf eStr
+
 /-- Sets the `auto.smt` options necessary to call `runAutoGetHints` without error -/
 def withAutoOptions {m : Type → Type} [MonadWithOptions m] {α : Type} (x : m α) : m α :=
   withOptions
@@ -279,45 +328,64 @@ def evalQuerySMT : Tactic
     -- **TODO**: Figure out how to properly propagate `goalDecls` in getDuperCoreSMTLemmas
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
     let goalsBeforeSkolemization ← getGoals
-    match getSkolemPrefixFromConfigOptions configOptions with
-    | some skolemPrefix => evalTactic (← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)}))
-    | none => evalTactic (← `(tactic| skolemizeAll))
+    try
+      match getSkolemPrefixFromConfigOptions configOptions with
+      | some skolemPrefix => evalTactic (← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)}))
+      | none => evalTactic (← `(tactic| skolemizeAll))
+    catch e =>
+      throwSkolemizationError e
     let goalsAfterSkolemization ← getGoals
     withMainContext do -- Use updated main context so that `collectAllLemmas` collects from the appropriate context
       let lctxAfterSkolemization ← getLCtx
       let hintElems : Syntax.TSepArray `Auto.hintelem "," := { elemsAndSeps := facts }
       let (lemmas, inhFacts) ←
-        /- **TODO** The current approach of assuming all facts from `facts` can be treated as `hintElems` causes failures
-           when attempting to use non-Prop hints like `Set.ite`. Need to improve the current approach so that things like `Set.ite`
-           will still be supported -/
-        if factsContainsQuerySMTStar then collectAllLemmas (← `(hints| [*, $hintElems,*])) #[] #[]
-        else collectAllLemmas (← `(hints| [$hintElems,*])) #[] #[]
-      let SMTHints ← withAutoOptions $ runAutoGetHints lemmas inhFacts
+        try
+          /- **TODO** The current approach of assuming all facts from `facts` can be treated as `hintElems` causes failures
+            when attempting to use non-Prop hints like `Set.ite`. Need to improve the current approach so that things like `Set.ite`
+            will still be supported -/
+          if factsContainsQuerySMTStar then collectAllLemmas (← `(hints| [*, $hintElems,*])) #[] #[]
+          else collectAllLemmas (← `(hints| [$hintElems,*])) #[] #[]
+        catch e =>
+          throwTranslationError e
+      let SMTHints ←
+        try
+          withAutoOptions $ runAutoGetHints lemmas inhFacts
+        catch e =>
+          let eStr ← e.toMessageData.toString
+          if eStr == "runAutoGetHints :: SMT solver was unable to find a proof" then throwSolverError e
+          else if "querySMTForHints :: Encountered error trying to parse SMT solver's hints.".isPrefixOf eStr then throwHintParsingError e
+          else throwTranslationError e -- If an error isn't explicitly identified as a solver or parsing error, interpret it as a translation error
       let (unsatCoreDerivLeafStrings, selectorInfos, allSMTLemmas) := SMTHints
-      let (preprocessFacts, theoryLemmas, instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
+      let (preprocessFacts, theoryLemmas, _instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
       let smtLemmas := preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
         (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
-      for (selName, selCtor, argIdx, selType) in selectorInfos do
-        let selFactName := selName ++ "Fact"
-        let selector ← buildSelector selCtor argIdx
-        let selectorStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selector
-        let selectorFact ← buildSelectorFact selName selCtor selType argIdx
-        let selectorFactStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selectorFact
-        let existsIntroStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab (mkConst ``Exists.intro)
-        evalTactic $ -- Eval to add selector and its corresponding fact to lctx
-          ← `(tactic|
-              obtain ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
-                apply $existsIntroStx:term $selectorStx:term
-                intros
-                rfl
-            )
+      try
+        for (selName, selCtor, argIdx, selType) in selectorInfos do
+          let selFactName := selName ++ "Fact"
+          let selector ← buildSelector selCtor argIdx
+          let selectorStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selector
+          let selectorFact ← buildSelectorFact selName selCtor selType argIdx
+          let selectorFactStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selectorFact
+          let existsIntroStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab (mkConst ``Exists.intro)
+          evalTactic $ -- Eval to add selector and its corresponding fact to lctx
+            ← `(tactic|
+                obtain ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
+                  apply $existsIntroStx:term $selectorStx:term
+                  intros
+                  rfl
+              )
+      catch e =>
+        throwSelectorConstructionError e
       withMainContext do -- Use updated main context so that newly added selectors are accessible
         trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
         let duperConfigOptions :=
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
             preprocessing := none, includeExpensiveRules := none, selFunction := none }
         let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
-          getDuperCoreSMTLemmas unsatCoreDerivLeafStrings selectorInfos smtLemmas lemmas facts duperConfigOptions
+          try
+            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings selectorInfos smtLemmas lemmas facts duperConfigOptions
+          catch e =>
+            throwDuperError e
         trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
         let smtLemmasStx ← smtLemmas.mapM
           (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)
@@ -418,7 +486,10 @@ def evalQuerySMT : Tactic
         addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
         let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
         let newAbsurd ← getMainGoal -- Main goal changed by `skolemizeAll` and selector creation
-        newAbsurd.assign proof
+        try
+          newAbsurd.assign proof
+        catch e =>
+          throwProofFitError e
 | _ => throwUnsupportedSyntax
 
 end QuerySMT

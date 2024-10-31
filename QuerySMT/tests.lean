@@ -15,6 +15,7 @@ set_option trace.querySMT.debug true
 set_option duper.throwPortfolioErrors false
 
 set_option duper.collectDatatypes true
+set_option auto.getHints.failOnParseError true
 
 example (x y z : Int) : x ≤ y → y ≤ z → x ≤ z := by
   querySMT
