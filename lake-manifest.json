@@ -98,7 +98,7 @@
    "rev": "a500ea7a5b9eca0ecaa7b4a229786a61b2707d30",
    "name": "Duper",
    "manifestFile": "lake-manifest.json",
-   "inputRev": "dev",
+   "inputRev": "a500ea7a5b9eca0ecaa7b4a229786a61b2707d30",
    "inherited": false,
    "configFile": "lakefile.lean"}],
  "name": "QuerySMT",
