@@ -1,4 +1,7 @@
 import QuerySMT
+import Hammer
+import Aesop
+import Mathlib.Tactic.Linarith
 
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
@@ -235,3 +238,9 @@ example (t : Type) (x : myType2 t) : ∃ y : t, x = const3 y ∨ x = const4 y :=
 -- Checking to make sure `querySMT` can handle dependencies in initial forall arguments
 example : ∀ α : Type, ∀ x : α, x = x := by
   querySMT
+
+-- Trying to find a way to call `simp` that will let me simplify away casts *without* reducing facts like this.
+example : 50 + 50 = 100 := by
+  simp (config :=
+    { decide := false, arith := false, autoUnfold := false, dsimp := false,
+      implicitDefEqProofs := false, beta := false, zeta := false, ground := false }) only

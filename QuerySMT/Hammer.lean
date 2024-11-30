@@ -257,6 +257,8 @@ def evalHammer : Tactic
           throwTranslationError e
       let hints ←
         try
+          trace[hammer.debug] "Lemmas passed to runAutoGetHints {lemmas}"
+          trace[hammer.debug] "inhFacts passed to runAutoGetHints {inhFacts}"
           runAutoGetHints lemmas inhFacts
         catch e =>
           if (← e.toMessageData.toString) ==  "runAutoGetHints :: External TPTP solver unable to solve the goal" then

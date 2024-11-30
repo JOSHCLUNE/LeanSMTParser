@@ -2,6 +2,8 @@ import Lean
 import Mathlib.Tactic.PushNeg
 import Mathlib.Tactic.Zify
 import Mathlib.Tactic.Rename
+import Mathlib.Data.Real.Basic
+import Duper
 
 open Lean Meta Elab Tactic Parser Tactic Core Mathlib.Tactic.PushNeg
 
@@ -146,5 +148,67 @@ example (f g : Nat → Nat) (h : ∀ x : Nat, f x = g x) : f = g := by
   /- I can't get rid of the casting because I don't know that `f` and `g` always output nonnegative
      results (even though they definitely do since I lifted them from `Nat → Nat`) -/
   sorry
+
+example (x : Int) (h : x ≥ 0) : |x| = x := by
+  simp [h]
+
+example : ∀ x : Int, x = 5 → |x| = 5 := by
+  simp only [forall_eq, Nat.abs_ofNat]
+
+example : ∃ x : Int, x = 5 ∧ |x| = 5 := by
+  simp only [exists_eq_left, Nat.abs_ofNat]
+
+example : ∃ x : Int, x ≥ 0 ∧ |x| = 5 := by
+  simp? (config := { contextual := true })
+  sorry
+
+example (P : Int → Prop) (h : ∀ x : Int, x ≥ 0 → P x) : ∀ x : Int, x ≥ 0 → P x := by
+  simp (config := { contextual := true }) only [ge_iff_le, implies_true, h]
+  -- contextual := true is necessary for simp to solve the above
+
+example (x : Nat × Nat) : x.1 ≥ 0 := by
+  zify
+  lift x to Int × Int using True.intro
+  unfold intProdToNatProd
+  simp only [Int.natCast_natAbs, abs_nonneg]
+
+#check Int.natAbs_cast
+
+theorem Int.cast_natAbs_cancel (z : Int) (h : z ≥ 0) : ↑(z.natAbs) = z := by
+  simp only [Int.natCast_natAbs, abs_eq_self, h]
+
+example (P Q : Nat → Prop) (n : Nat)
+  (h1 : ∀ x : Int, x ≥ 0 → P x.natAbs → Q x.natAbs)
+  (h2 : P n) : Q n := by
+  exact h1 ↑n (by simp only [ge_iff_le, Nat.cast_nonneg]) h2
+
+example (P Q : Nat → Prop) (n : Nat)
+  (h1 : ∀ x : Int, x ≥ 0 → P x.natAbs → Q x.natAbs)
+  (h2 : P n) : Q n := by
+  duper [*, Int.natAbs_cast, Int.cast_natAbs_cancel, Nat.cast_nonneg]
+
+set_option trace.duper.saturate.debug true in
+example (P Q : Nat → Prop) (R : Nat × Nat → Prop) (y : Nat × Nat)
+  (h1 : ∀ x : Int × Int, R (x.1.natAbs, x.2.natAbs) → x.1 ≥ 0 → x.2 ≥ 0 → P x.1.natAbs → Q x.2.natAbs)
+  (h2 : P y.1) (h3 : R y) : Q y.2 := by
+  duper [*, Int.natAbs_cast, Int.cast_natAbs_cancel, Nat.cast_nonneg] {portfolioInstance := 1}
+  -- Fails because current monomorphization procedure kills datatype reasoning
+
+set_option trace.duper.saturate.debug true in
+example (P Q : Nat → Prop) (R : Nat × Nat → Prop) (y : Nat × Nat)
+  (h1 : ∀ x : Int × Int, R (x.1.natAbs, x.2.natAbs) → x.1 ≥ 0 → x.2 ≥ 0 → P x.1.natAbs → Q x.2.natAbs)
+  (h2 : P y.1) (h3 : R y) : Q y.2 := by
+  duper [*, Int.natAbs_cast, Int.cast_natAbs_cancel, Nat.cast_nonneg, ge_iff_le, Nat.zero_le] {portfolioInstance := 1}
+
+#check Int.natAbs_cast
+#check Int.cast_natAbs_cancel
+#check Nat.cast_nonneg
+#check Nat.zero_le
+#check ge_iff_le
+
+example (P Q : Int → Prop) (R : Nat × Nat → Prop) (y : Nat × Nat)
+  (h1 : ∀ x : Nat × Nat, R x → x.1 ≥ 0 → x.2 ≥ 0 → P x.1 → Q x.2)
+  (h2 : P ↑y.1) (h3 : R y) : Q ↑y.2 := by
+  duper [*, ge_iff_le, Nat.zero_le, Int.natAbs_cast, Int.cast_natAbs_cancel, Nat.cast_nonneg]
 
 end ReplaceNats
