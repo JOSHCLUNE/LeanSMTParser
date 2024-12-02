@@ -42,6 +42,7 @@ theorem one_or_other_of_ne {p q : Prop} (h : p ≠ q) : (p ∧ ¬q) ∨ (¬p ∧
     simp only [eq_false hp, h, not_true_eq_false, and_self, not_false_eq_true, or_true]
 
 theorem exists_of_not_forall {p : α → Prop} : (¬∀ x, p x) → ∃ x, ¬p x := Iff.mp not_forall
+theorem not_imp_forward {p q : Prop} : (¬(p → q)) → (p ∧ ¬q) := Iff.mp Classical.not_imp
 theorem not_and_or_forward {a : Prop} {b : Prop} : ¬(a ∧ b) → ¬a ∨ ¬b := Iff.mp not_and_or
 theorem not_or_forward {p : Prop} {q : Prop} : ¬(p ∨ q) → ¬p ∧ ¬q := Iff.mp not_or
 theorem not_iff_forward {a b : Prop} : ¬(a ↔ b) → (¬a ↔ b) := Iff.mp not_iff
@@ -94,7 +95,9 @@ def pushNegation (e : Expr) : TacticM (Option Expr) := do
   let t ← instantiateMVars $ ← inferType e
   match t with
   | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``Exists _) _) _) => mkAppM ``forall_not_of_not_exists #[e]
-  | Expr.app (Expr.const ``Not _) (Expr.forallE _ _ _ _) => mkAppM ``Skolemize.exists_of_not_forall #[e]
+  | Expr.app (Expr.const ``Not _) (Expr.forallE _ ty b _) =>
+    if (← inferType ty).isProp && !b.hasLooseBVars then mkAppM ``not_imp_forward #[e]
+    else mkAppM ``Skolemize.exists_of_not_forall #[e]
   | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``And _) _) _) => mkAppM ``not_and_or_forward #[e]
   | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``Or _) _) _) => mkAppM ``not_or_forward #[e]
   | Expr.app (Expr.const ``Not _) (Expr.app (Expr.app (Expr.const ``Iff _) _) _)  => mkAppM ``not_iff_forward #[e]
@@ -122,6 +125,7 @@ def pushNegation (e : Expr) : TacticM (Option Expr) := do
 partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (forallFVars : Array Expr)
   : TacticM (Array (Expr × Expr) × Expr) := do
   let t ← instantiateMVars $ ← inferType e
+  trace[skolemizeAll.debug] "Calling skolemizeOne on {e} of type {t}"
   match t with
   | Expr.app (Expr.app (Expr.const ``Exists _) ty) b =>
     let (skolemFunction, e') ← skolemizeExists e forallFVars ty b
