@@ -56,12 +56,13 @@ structure ConfigurationOptions where
   simpTarget : SimpTarget
 
 syntax hammerStar := "*"
-syntax (name := hammer) "hammer" (ppSpace "[" (hammerStar <|> term),* "]")? (ppSpace "{"Hammer.configOption,*,?"}")? : tactic
+syntax (name := hammer) "hammer"
+  (ppSpace "[" ((simpErase <|> simpLemma),*,?)  "]")
+  (ppSpace "[" (hammerStar <|> term),* "]")
+  (ppSpace "{"Hammer.configOption,*,?"}")? : tactic
 
 macro_rules
-| `(tactic| hammer) => `(tactic| hammer [] {}) -- Missing both facts and config options
-| `(tactic| hammer [$facts,*]) => `(tactic| hammer [$facts,*] {}) -- Mising just config options
-| `(tactic| hammer {$configOptions,*}) => `(tactic| hammer [] {$configOptions,*}) -- Missing just facts
+| `(tactic| hammer [$simpLemmas,*] [$facts,*]) => `(tactic| hammer [$simpLemmas,*] [$facts,*] {})
 
 /-- Given a Syntax.TSepArray of facts provided by the user (which may include `*` to indicate that hammer should read in the
     full local context) `removeHammerStar` returns the Syntax.TSepArray with `*` removed and a boolean that indicates whether `*`
@@ -187,7 +188,7 @@ def errorIsProofFitError (e : Exception) : IO Bool := do
 
 @[tactic hammer]
 def evalHammer : Tactic
-| `(tactic| hammer%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
+| `(tactic| hammer%$stxRef [$simpLemmas,*] [$facts,*] {$configOptions,*}) => withMainContext do
   let configOptions ← parseConfigOptions configOptions
   let (factsContainsHammerStar, facts) := removeHammerStar facts
   let mut simpPreprocessingSuggestion := #[]
@@ -196,16 +197,16 @@ def evalHammer : Tactic
     | no_target => pure () -- No simp preprocessing
     | target =>
       let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp))
+      evalTactic (← `(tactic| simp [$simpLemmas,*]))
       let goalsAfterSimpCall ← getGoals
       if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp))
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp [$simpLemmas,*]))
     | all =>
       let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp_all))
+      evalTactic (← `(tactic| simp_all [$simpLemmas,*]))
       let goalsAfterSimpCall ← getGoals
       if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp_all` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all))
+        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all [$simpLemmas,*]))
   catch e => -- Ignore errors arising from the fact that the `simp`/`simp_all` preprocessing call might do nothing
     let eStr ← e.toMessageData.toString
     if eStr == "simp made no progress" || eStr == "simp_all made no progress" then pure ()
