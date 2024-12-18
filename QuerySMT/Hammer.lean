@@ -191,30 +191,39 @@ def evalHammer : Tactic
 | `(tactic| hammer%$stxRef [$simpLemmas,*] [$facts,*] {$configOptions,*}) => withMainContext do
   let configOptions ← parseConfigOptions configOptions
   let (factsContainsHammerStar, facts) := removeHammerStar facts
-  let mut simpPreprocessingSuggestion := #[]
-  try
-    match configOptions.simpTarget with
-    | no_target => pure () -- No simp preprocessing
-    | target =>
-      let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp [$simpLemmas,*]))
-      let goalsAfterSimpCall ← getGoals
-      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp [$simpLemmas,*]))
-    | all =>
-      let goalsBeforeSimpCall ← getGoals
-      evalTactic (← `(tactic| simp_all [$simpLemmas,*]))
-      let goalsAfterSimpCall ← getGoals
-      if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp_all` call to suggestion if it affected the goal state
-        simpPreprocessingSuggestion := simpPreprocessingSuggestion.push (← `(tactic| simp_all [$simpLemmas,*]))
-  catch e => -- Ignore errors arising from the fact that the `simp`/`simp_all` preprocessing call might do nothing
-    let eStr ← e.toMessageData.toString
-    if eStr == "simp made no progress" || eStr == "simp_all made no progress" then pure ()
-    else throwSimpPreprocessingError e
+
+  let simpPreprocessingSuggestion ←
+    tryCatchRuntimeEx (do
+      match configOptions.simpTarget with
+      | no_target => pure #[] -- No simp preprocessing
+      | target =>
+        let goalsBeforeSimpCall ← getGoals
+        evalTactic (← `(tactic| simp [$simpLemmas,*]))
+        let goalsAfterSimpCall ← getGoals
+        if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp` call to suggestion if it affected the goal state
+          pure #[(← `(tactic| simp [$simpLemmas,*]))]
+        else
+          pure #[]
+      | all =>
+        let goalsBeforeSimpCall ← getGoals
+        evalTactic (← `(tactic| simp_all [$simpLemmas,*]))
+        let goalsAfterSimpCall ← getGoals
+        if goalsBeforeSimpCall != goalsAfterSimpCall then -- Only add `simp_all` call to suggestion if it affected the goal state
+          pure #[(← `(tactic| simp_all [$simpLemmas,*]))]
+        else
+          pure #[]
+      )
+      (fun e => do
+        let eStr ← e.toMessageData.toString
+        if eStr == "simp made no progress" || eStr == "simp_all made no progress" then pure #[]
+        else throwSimpPreprocessingError e
+      )
+
   if (← getUnsolvedGoals).isEmpty then
     let tacticSeq ← `(tacticSeq| $simpPreprocessingSuggestion*)
     addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
     return -- The simp preprocessing call is sufficient to close all goals, so no more work needs to be done
+
   let lctxBeforeIntros ← getLCtx
   let originalMainGoal ← getMainGoal
   let goalType ← originalMainGoal.getType
@@ -247,25 +256,25 @@ def evalHammer : Tactic
       let lemmas ← formulasToAutoLemmas formulas
       -- Calling Auto.unfoldConstAndPreprocessLemma is an essential step for the monomorphization procedure
       let lemmas ←
-        try
-          lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[])
-        catch e =>
-          throwTranslationError e
+        tryCatchRuntimeEx
+          (lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[]))
+          throwTranslationError
       let inhFacts ←
-        try
+        tryCatchRuntimeEx
           Auto.Inhabitation.getInhFactsFromLCtx
-        catch e =>
-          throwTranslationError e
+          throwTranslationError
       let hints ←
-        try
+        tryCatchRuntimeEx (do
           trace[hammer.debug] "Lemmas passed to runAutoGetHints {lemmas}"
           trace[hammer.debug] "inhFacts passed to runAutoGetHints {inhFacts}"
           runAutoGetHints lemmas inhFacts
-        catch e =>
-          if (← e.toMessageData.toString) ==  "runAutoGetHints :: External TPTP solver unable to solve the goal" then
-            throwExternalSolverError e
-          else
-            throwTranslationError e
+          )
+          (fun e => do
+            if (← e.toMessageData.toString) ==  "runAutoGetHints :: External TPTP solver unable to solve the goal" then
+              throwExternalSolverError e
+            else
+              throwTranslationError e
+          )
       match configOptions.solver with
       | zipperposition =>
         let mut tacticsArr := simpPreprocessingSuggestion -- The array of tactics that will be suggested to the user
@@ -274,10 +283,9 @@ def evalHammer : Tactic
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
             preprocessing := Duper.PreprocessingOption.NoPreprocessing, selFunction := none }
         let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ←
-          try
-            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas facts duperConfigOptions
-          catch e =>
-            throwDuperError e
+          tryCatchRuntimeEx
+            (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas facts duperConfigOptions)
+            throwDuperError
         -- Build the `intros ...` tactic with appropriate names
         let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
         let mut numGoalHyps := 0
@@ -307,10 +315,9 @@ def evalHammer : Tactic
         let tacticSeq ← `(tacticSeq| $tacticsArr*)
         -- **TODO** Add a warning if anything gets inadvertently shadowed (e.g. by `negGoal` or an introduced goal hypothesis)
         addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
-        try
-          absurd.assign duperProof
-        catch e =>
-          throwProofFitError e
+        tryCatchRuntimeEx
+          (absurd.assign duperProof)
+          throwProofFitError
       | cvc5 => throwError "evalHammer :: cvc5 support not yet implemented"
 | _ => throwUnsupportedSyntax
 

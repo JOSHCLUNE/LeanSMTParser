@@ -184,7 +184,7 @@ inductive myType3
 open myType2 myType3
 
 example (x : myType3) : ∃ y : Unit, x = const5 y := by
-  querySMT
+  querySMT -- **NOTE** This broke with the changes that came with migrating to v4.14.0
 
 example (P : Int → Prop) (h : ∃ x : Int, P x) : ∃ y : Int, P (y + 0) := by
   querySMT
@@ -230,7 +230,7 @@ example (sum : myStructure → Int)
 example (sum : myProd Int Int → Int)
   (hSum : ∀ x : Int, ∀ y : Int, sum (mk x y) = x + y)
   (x : myProd Int Int) : ∃ y : myProd Int Int, sum x < sum y := by
-  querySMT
+  querySMT -- **NOTE** This broke with the changes that came with migrating to v4.14.0
 
 example (t : Type) (x : myType2 t) : ∃ y : t, x = const3 y ∨ x = const4 y := by
   querySMT
