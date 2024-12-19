@@ -140,7 +140,7 @@ def duperNativeSolverFunc (lemmas : Array Lemma) (inhLemmas : Array Lemma) : Met
     { portfolioMode := true,
       portfolioInstance := none,
       inhabitationReasoning := none,
-      preprocessing := Duper.PreprocessingOption.NoPreprocessing, -- It would be redundant to enable Auto's preprocessing for Auto calls
+      preprocessing := none,
       includeExpensiveRules := none,
       selFunction := none
     }
@@ -281,7 +281,7 @@ def evalHammer : Tactic
         let unsatCoreDerivLeafStrings := hints.1
         let duperConfigOptions := -- We set preprocessing to `NoPreprocessing` because repreprocessing the lemmas would be redundant
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
-            preprocessing := Duper.PreprocessingOption.NoPreprocessing, selFunction := none }
+            preprocessing := none, selFunction := none }
         let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ←
           tryCatchRuntimeEx
             (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas facts duperConfigOptions)
