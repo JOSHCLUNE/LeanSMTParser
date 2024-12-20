@@ -127,9 +127,17 @@ def withSolverOptions [Monad m] [MonadError m] [MonadWithOptions m] (configOptio
         let o := o.set `auto.smt false
         let o := o.set `auto.tptp.premiseSelection true
         let o := o.set `auto.tptp.solver.name "zipperposition"
+        let o := o.set `auto.mono.ignoreNonQuasiHigherOrder true
         o.set `auto.native true
       ) x
   | cvc5 => throwError "cvc5 hammer support not implemented yet"
+
+def withDuperOptions [Monad m] [MonadError m] [MonadWithOptions m] (x : m α) : m α :=
+  withOptions
+    (fun o =>
+      let o := o.set `duper.ignoreUnusableFacts true
+      o.set `auto.mono.ignoreNonQuasiHigherOrder true
+    ) x
 
 @[rebind Auto.Native.solverFunc]
 def duperNativeSolverFunc (lemmas : Array Lemma) (inhLemmas : Array Lemma) : MetaM Expr := do
@@ -251,7 +259,7 @@ def evalHammer : Tactic
   withMainContext do
     let lctxAfterIntros ← getLCtx
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
-    let formulas ← withOptions (fun o => o.set `duper.ignoreUnusableFacts true) $ collectAssumptions facts factsContainsHammerStar goalDecls
+    let formulas ← withDuperOptions $ collectAssumptions facts factsContainsHammerStar goalDecls
     withSolverOptions configOptions do
       let lemmas ← formulasToAutoLemmas formulas
       -- Calling Auto.unfoldConstAndPreprocessLemma is an essential step for the monomorphization procedure

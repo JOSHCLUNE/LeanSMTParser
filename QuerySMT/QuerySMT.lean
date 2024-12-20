@@ -103,6 +103,7 @@ def withAutoOptions {m : Type → Type} [MonadWithOptions m] {α : Type} (x : m 
       let o := o.set `auto.smt.trust true
       let o := o.set `auto.smt.solver.name "cvc5"
       let o := o.set `auto.smt.dumpHints true
+      let o := o.set `auto.mono.ignoreNonQuasiHigherOrder true
       o.set `auto.smt.dumpHints.limitedRws true
     ) x
 
