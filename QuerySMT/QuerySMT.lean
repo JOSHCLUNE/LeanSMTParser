@@ -16,7 +16,7 @@ syntax (&"goalHypPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"negGoalLemmaName" " := " strLit) : QuerySMT.configOption
 
 syntax querySMTStar := "*"
-syntax (name := querySMT) "querySMT" (ppSpace "[" (querySMTStar <|> term),* "]")? (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
+syntax (name := querySMT) "querySMT" (ppSpace Auto.hints)? (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
 
 def getLemmaPrefixFromConfigOptions (configOptionsStx : TSyntaxArray `QuerySMT.configOption) : Option String := Id.run do
   for configOptionStx in configOptionsStx do
@@ -203,8 +203,8 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
     -- Determine which of the non-lctx facts that were passed into `querySMT`/`hammer` appear in `prf`
     let mut userInputFactsInProof := #[]
     for factStx in userFacts do
-      let factStr := s!"❰{factStx}❱" -- This `factStr` is based on the leaf that `Auto.collectUserLemmas` generates for `fact`
-      if unsatCoreDerivLeafStrings.any (fun l => (l.splitOn factStr).length > 1) then
+      let factName := factStx.raw.getId
+      if prf.containsConst (fun n => n == factName) then
         userInputFactsInProof := userInputFactsInProof.push factStx
     pure (smtLemmasInPrf, necessarySelectors, lctxFactsInProof, userInputFactsInProof, prf)
 
@@ -253,55 +253,18 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
-/-- Given a `Syntax.TSepArray` of facts provided by the user (which may include `*` to indicate that querySMT should read in the
-    full local context) and an Array of additional terms to be included, `removeQuerySMTStar` returns the Syntax.TSepArray with `*`
-    removed and a boolean that indicates whether `*` was included in the original input.
-
-    Additionally, `removeQuerySMTStar` converts all of the facts in `facts` and `additionalFacts` to `Auto.hintelem`s so that the output can
-    be passed directly to `Auto.collectAllLemmas` -/
-def removeQuerySMTStar (facts : Syntax.TSepArray [`QuerySMT.querySMTStar, `term] ",") (additionalFacts : Array Term)
-  : TacticM (Bool × Syntax.TSepArray `term ",") := do
-  let factsArr := facts.elemsAndSeps -- factsArr contains both the elements of facts and separators, ordered like `#[e1, s1, e2, s2, e3]`
-  let mut newFactsArr : Array Syntax := #[]
-  let mut removedStar := false
-  let mut needToRemoveSeparator := false -- If `*` is removed, its comma also needs to be removed to preserve the elemsAndSeps ordering
-  for fact in factsArr do
-    match fact with
-    | `(querySMTStar| *) =>
-      removedStar := true
-      needToRemoveSeparator := true
-    | `(ident| $fact) =>
-      if needToRemoveSeparator then needToRemoveSeparator := false -- Don't push current separator onto newFactsArr
-      else newFactsArr := newFactsArr.push $ ← `(Auto.hintelem| $fact:term)
-  if removedStar && needToRemoveSeparator then -- This can occur if `*` was the last or only element of facts
-    newFactsArr := newFactsArr.pop
-  -- Add `additionalFacts` to `facts`
-  if additionalFacts.size > 0 && newFactsArr.size > 0 then
-    newFactsArr := newFactsArr.push $ mkAtom ","
-  for additionalFact in additionalFacts do
-    newFactsArr := newFactsArr.push $ ← `(Auto.hintelem| $additionalFact:term)
-  return (removedStar, {elemsAndSeps := newFactsArr})
-
-def factsToHintElems (facts : Array Term) : TacticM (Array (TSyntax `Auto.hintelem)) := do
-  let mut hintElems : Array (TSyntax `Auto.hintelem) := #[]
-  for fact in facts do
-    hintElems := hintElems.push $ ← `(Auto.hintelem| $fact:term)
-  return hintElems
-
 -- **TODO** Replace all `try-catch` statements with `tryCatchRuntimeEx` calls as in `Hammer.lean`
 @[tactic querySMT]
 def evalQuerySMT : Tactic
-| `(querySMT | querySMT%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
-  /-
+| `(querySMT | querySMT%$stxRef $hints {$configOptions,*}) => withMainContext do
+  let ⟨facts, _, includeLCtx⟩ ← Auto.parseHints hints
+  -- **TODO** Add more additional facts to cover things like casting (and to relate Nat facts in the original goal
+  -- to zified hints output by cvc5)
   let additionalFacts :=
-    #[(← `(term| $(mkIdent ``Nat.zero_le))), ⟨mkAtom ","⟩,
-      (← `(term| $(mkIdent ``Int.zero_sub))), ⟨mkAtom ","⟩,
-      (← `(term| $(mkIdent ``ge_iff_le))), ⟨mkAtom ","⟩,
-      (← `(term| $(mkIdent ``gt_iff_lt)))]
-  -/
-  let additionalFacts := #[] -- **TODO** Readdd actual additional facts once `getDuperCoreSMTLemmas` is fixed
-  let (factsContainsQuerySMTStar, facts) ← removeQuerySMTStar facts additionalFacts
-  trace[querySMT.debug] "facts: {(facts : Array Term)}"
+    #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.zero_sub))),
+      (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt)))]
+  let facts := facts ++ additionalFacts
+  trace[querySMT.debug] "facts: {(facts)}"
   let lctxBeforeIntros ← getLCtx
   let originalMainGoal ← getMainGoal
   let goalType ← originalMainGoal.getType
@@ -347,15 +310,9 @@ def evalQuerySMT : Tactic
     let goalsAfterSkolemization ← getGoals
     withMainContext do -- Use updated main context so that `collectAllLemmas` collects from the appropriate context
       let lctxAfterSkolemization ← getLCtx
-      let hintElems : TSyntaxArray `Auto.hintelem ← factsToHintElems facts
-      trace[querySMT.debug] "hintElems: {hintElems}"
       let (lemmas, inhFacts) ←
         try
-          /- **TODO** The current approach of assuming all facts from `facts` can be treated as `hintElems` causes failures
-            when attempting to use non-Prop hints like `Set.ite`. Need to improve the current approach so that things like `Set.ite`
-            will still be supported -/
-          if factsContainsQuerySMTStar then collectAllLemmas (← `(Auto.hints| [*, $hintElems,*])) #[] #[]
-          else collectAllLemmas (← `(Auto.hints| [$hintElems,*])) #[] #[]
+          collectAllLemmas (← `(Auto.hints| $hints)) #[] #[]
         catch e =>
           throwTranslationError e
       let SMTHints ←
@@ -394,7 +351,7 @@ def evalQuerySMT : Tactic
             preprocessing := none, includeExpensiveRules := none, selFunction := none }
         let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
           try
-            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts goalDecls selectorInfos smtLemmas factsContainsQuerySMTStar additionalFacts.contains duperConfigOptions
+            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts goalDecls selectorInfos smtLemmas includeLCtx additionalFacts.contains duperConfigOptions
           catch e =>
             throwDuperError e
         trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
