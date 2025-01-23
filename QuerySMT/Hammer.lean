@@ -194,6 +194,7 @@ def errorIsProofFitError (e : Exception) : IO Bool := do
   let eStr ← e.toMessageData.toString
   return "hammer successfully translated the problem and reconstructed an external prover's proof, but encountered an issue in applying said proof.".isPrefixOf eStr
 
+/-
 @[tactic hammer]
 def evalHammer : Tactic
 | `(tactic| hammer%$stxRef [$simpLemmas,*] [$facts,*] {$configOptions,*}) => withMainContext do
@@ -292,7 +293,7 @@ def evalHammer : Tactic
             preprocessing := none, selFunction := none }
         let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ←
           tryCatchRuntimeEx
-            (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas facts duperConfigOptions)
+            (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas (fun _ => false) facts duperConfigOptions)
             throwDuperError
         -- Build the `intros ...` tactic with appropriate names
         let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
@@ -328,5 +329,6 @@ def evalHammer : Tactic
           throwProofFitError
       | cvc5 => throwError "evalHammer :: cvc5 support not yet implemented"
 | _ => throwUnsupportedSyntax
+-/
 
 end Hammer

@@ -112,30 +112,24 @@ macro_rules
 | `(tactic| querySMT [$facts,*]) => `(tactic| querySMT [$facts,*] {}) -- Mising just config options
 | `(tactic| querySMT {$configOptions,*}) => `(tactic| querySMT [*] {$configOptions,*}) -- Missing just facts
 
-/-- Given `selectorInfos` and `smtLemmas` output by the SMT solver, and `lemmas` which is output by
-    `Auto.collectAllLemmas`, `getDuperCoreSMTLemmas` calls Duper and returns:
+/-- Given `userFacts`, `goalDecls`, `selectorInfos`, and `smtLemmas`, `getDuperCoreSMTLemmas` calls Duper and returns:
     - The SMT lemmas that appear in the final proof
     - The SMT selectors that appear in the final proof (as Strings)
     - The hypotheses from the local context that were included by `unsatCoreDerivLeafStrings` (as FVarIds)
     - The facts from `userInputFacts` passed into `querySMT` or `hammer` that were not from the local context
     - The proof the Duper produces -/
-def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (selectorInfos : Array (String × Expr × Nat × Expr)) (smtLemmas : List Expr)
-  (lemmas : Array Auto.Lemma) (userInputFacts : Array Term) (duperConfigOptions : Duper.ConfigurationOptions)
-  : TacticM (Array Expr × Array String × Array FVarId × Array Term × Expr) := do
+def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts : Syntax.TSepArray `term ",") (goalDecls : Array LocalDecl)
+  (selectorInfos : Array (String × Expr × Nat × Expr)) (smtLemmas : List Expr) (includeAllLctx : Bool) (alwaysInclude : Term → Bool)
+  (duperConfigOptions : Duper.ConfigurationOptions) : TacticM (Array Expr × Array String × Array FVarId × Array Term × Expr) := do
   let lctx ← getLCtx
-  -- Use `unsatCoreDerivLeafStrings` to filter `lemmas` so that it only contains `lemmas` in the SMT solver's unsat core
-  let mut coreLemmas := #[]
-  for lem in lemmas do
-    let lemLeafStrings := lem.deriv.collectLeafStrings
-    -- Add `lem` to `coreLemmas` iff all strings in `lemLeafStrings` appear in `unsatCoreDerivLeafStrings`
-    let mut allLemLeafStringsInUnsatCore := true
-    for lemLeafString in lemLeafStrings do
-      if !unsatCoreDerivLeafStrings.contains lemLeafString then
-        allLemLeafStringsInUnsatCore := false
-        break
-    if allLemLeafStringsInUnsatCore then
-      coreLemmas := coreLemmas.push lem
-  -- `smtLemmas` can have loose bound variables corresponding to selectors. Instantiate those bound variables
+  -- Filter `userFacts` to only include facts that appear in the SMT solver's unsat core (and facts that `alwaysInclude` says to include)
+  let userFacts : Array Term := userFacts
+  let mut coreUserFacts := #[]
+  for factStx in userFacts do
+    let factStr := s!"❰{factStx}❱" -- This `factStr` is based on the leaf that `Auto.collectUserLemmas` generates for `fact`
+    if unsatCoreDerivLeafStrings.any (fun l => (l.splitOn factStr).length > 1) || alwaysInclude factStx then
+      coreUserFacts := coreUserFacts.push factStx
+  -- Build `smtDeclInfos` from `smtLemmas` (after instantiating loose bound variables corresponding to selectors)
   let mut selectorFVars := #[]
   for (selUserName, _, _, _) in selectorInfos do
     match lctx.findFromUserName? (.str .anonymous selUserName) with
@@ -155,35 +149,39 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (selectorIn
       declInfos := declInfos.push (lemName, lemConstructor)
       declCounter := declCounter + 1
     pure declInfos
+  -- Continue with local decls corresponding to `smtDeclInfos`
   withLocalDeclsD smtDeclInfos $ fun xs => do
-    let formulas ← do
-      let mut formulas := #[]
-      let mut lemCounter := 0
-      for (selName, selCtor, argIdx, selType) in selectorInfos do -- Add Selectors
-        let selFactName := selName ++ "Fact"
-        let some selFactDecl := lctx.findFromUserName? (.str .anonymous selFactName)
-          | throwError "getDuperCoreSMTLemmas :: Unable to find selector fact {selFactName}"
-        formulas := formulas.push (selFactDecl.type, ← mkAppM ``eq_true #[.fvar selFactDecl.fvarId], #[], false, none)
-      for lem in smtLemmas do -- Add SMT lemmas
-        formulas := formulas.push (lem, ← mkAppM ``eq_true #[xs[lemCounter]!], #[], false, none)
-        lemCounter := lemCounter + 1
-      for lem in coreLemmas do -- Add lemmas from ordinary lctx that appear in the SMT solver's unsat core
-        let isFromGoal := false -- **TODO**: Figure out how to correctly compute this using `goalDecls`
-        formulas := formulas.push (lem.type, ← mkAppM ``eq_true #[lem.proof], lem.params, isFromGoal, none)
-      pure formulas.toList
+    -- Build `formulas` to pass into `runDuperPortfolioMode`
+    let mut formulas := (← collectAssumptions coreUserFacts includeAllLctx goalDecls).toArray
+    -- Add selector facts to `formulas`
+    for (selName, selCtor, argIdx, selType) in selectorInfos do
+      let selFactName := selName ++ "Fact"
+      let some selFactDecl := lctx.findFromUserName? (.str .anonymous selFactName)
+        | throwError "getDuperCoreSMTLemmas :: Unable to find selector fact {selFactName}"
+      formulas := formulas.push (selFactDecl.type, ← mkAppM ``eq_true #[.fvar selFactDecl.fvarId], #[], false, none)
+    -- Add `smtLemmas` to `formulas`
+    let mut lemCounter := 0
+    for lem in smtLemmas do
+      formulas := formulas.push (lem, ← mkAppM ``eq_true #[xs[lemCounter]!], #[], false, none)
+      lemCounter := lemCounter + 1
+    -- Try to reconstruct the proof using `runDuperPortfolioMode`
     let prf ←
       try
-        runDuperPortfolioMode formulas none duperConfigOptions none
+        trace[querySMT.debug] "getDuperCoreSMTLemmas :: Calling runDuperPortfolioMode with formulas: {formulas}"
+        runDuperPortfolioMode formulas.toList none duperConfigOptions none
       catch e =>
         throwError m!"getDuperCoreSMTLemmas :: Unable to use hints from external solver to reconstruct proof. " ++
                    m!"Duper threw the following error:\n\n{e.toMessageData}"
     -- Find `smtLemmasInPrf`
+    -- **TODO** This procedure does not appear to always work (see Even/Odd example in issues.lean). Look into a better method
     let mut smtLemmasInPrf := #[]
     let mut smtDeclIndex := 0
     for x in xs do
       if prf.containsFVar x.fvarId! then
         trace[querySMT.debug] "{smtLemmas[smtDeclIndex]!} appears in the proof (index: {smtDeclIndex})"
         smtLemmasInPrf := smtLemmasInPrf.push (smtLemmas[smtDeclIndex]!)
+      else
+        trace[querySMT.debug] "{smtLemmas[smtDeclIndex]!} does not appear in the proof (index: {smtDeclIndex})"
       smtDeclIndex := smtDeclIndex + 1
     -- Find `necessarySelectors`
     let mut necessarySelectors := #[]
@@ -204,8 +202,8 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (selectorIn
           lctxFactsInProof := lctxFactsInProof.push decl.fvarId
     -- Determine which of the non-lctx facts that were passed into `querySMT`/`hammer` appear in `prf`
     let mut userInputFactsInProof := #[]
-    for factStx in userInputFacts do
-      let factStr := s!"{factStx}"
+    for factStx in userFacts do
+      let factStr := s!"❰{factStx}❱" -- This `factStr` is based on the leaf that `Auto.collectUserLemmas` generates for `fact`
       if unsatCoreDerivLeafStrings.any (fun l => (l.splitOn factStr).length > 1) then
         userInputFactsInProof := userInputFactsInProof.push factStx
     pure (smtLemmasInPrf, necessarySelectors, lctxFactsInProof, userInputFactsInProof, prf)
@@ -255,13 +253,14 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
-/-- Given a Syntax.TSepArray of facts provided by the user (which may include `*` to indicate that querySMT should read in the
-    full local context) `removeQuerySMTStar` returns the Syntax.TSepArray with `*` removed and a boolean that indicates whether `*`
-    was included in the original input.
+/-- Given a `Syntax.TSepArray` of facts provided by the user (which may include `*` to indicate that querySMT should read in the
+    full local context) and an Array of additional terms to be included, `removeQuerySMTStar` returns the Syntax.TSepArray with `*`
+    removed and a boolean that indicates whether `*` was included in the original input.
 
-    Additionally, `removeQuerySMTStar` converts all of the facts in `facts` to `Auto.hintelem`s so that the output can be passed directly
-    to `Auto.collectAllLemmas` -/
-def removeQuerySMTStar (facts : Syntax.TSepArray [`QuerySMT.querySMTStar, `term] ",") : TacticM (Bool × Syntax.TSepArray `term ",") := do
+    Additionally, `removeQuerySMTStar` converts all of the facts in `facts` and `additionalFacts` to `Auto.hintelem`s so that the output can
+    be passed directly to `Auto.collectAllLemmas` -/
+def removeQuerySMTStar (facts : Syntax.TSepArray [`QuerySMT.querySMTStar, `term] ",") (additionalFacts : Array Term)
+  : TacticM (Bool × Syntax.TSepArray `term ",") := do
   let factsArr := facts.elemsAndSeps -- factsArr contains both the elements of facts and separators, ordered like `#[e1, s1, e2, s2, e3]`
   let mut newFactsArr : Array Syntax := #[]
   let mut removedStar := false
@@ -275,15 +274,34 @@ def removeQuerySMTStar (facts : Syntax.TSepArray [`QuerySMT.querySMTStar, `term]
       if needToRemoveSeparator then needToRemoveSeparator := false -- Don't push current separator onto newFactsArr
       else newFactsArr := newFactsArr.push $ ← `(Auto.hintelem| $fact:term)
   if removedStar && needToRemoveSeparator then -- This can occur if `*` was the last or only element of facts
-    return (removedStar, {elemsAndSeps := newFactsArr.pop}) -- Remove the last extra separator in newFactsArr, if it exists
-  else
-    return (removedStar, {elemsAndSeps := newFactsArr})
+    newFactsArr := newFactsArr.pop
+  -- Add `additionalFacts` to `facts`
+  if additionalFacts.size > 0 && newFactsArr.size > 0 then
+    newFactsArr := newFactsArr.push $ mkAtom ","
+  for additionalFact in additionalFacts do
+    newFactsArr := newFactsArr.push $ ← `(Auto.hintelem| $additionalFact:term)
+  return (removedStar, {elemsAndSeps := newFactsArr})
+
+def factsToHintElems (facts : Array Term) : TacticM (Array (TSyntax `Auto.hintelem)) := do
+  let mut hintElems : Array (TSyntax `Auto.hintelem) := #[]
+  for fact in facts do
+    hintElems := hintElems.push $ ← `(Auto.hintelem| $fact:term)
+  return hintElems
 
 -- **TODO** Replace all `try-catch` statements with `tryCatchRuntimeEx` calls as in `Hammer.lean`
 @[tactic querySMT]
 def evalQuerySMT : Tactic
 | `(querySMT | querySMT%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
-  let (factsContainsQuerySMTStar, facts) ← removeQuerySMTStar facts
+  /-
+  let additionalFacts :=
+    #[(← `(term| $(mkIdent ``Nat.zero_le))), ⟨mkAtom ","⟩,
+      (← `(term| $(mkIdent ``Int.zero_sub))), ⟨mkAtom ","⟩,
+      (← `(term| $(mkIdent ``ge_iff_le))), ⟨mkAtom ","⟩,
+      (← `(term| $(mkIdent ``gt_iff_lt)))]
+  -/
+  let additionalFacts := #[] -- **TODO** Readdd actual additional facts once `getDuperCoreSMTLemmas` is fixed
+  let (factsContainsQuerySMTStar, facts) ← removeQuerySMTStar facts additionalFacts
+  trace[querySMT.debug] "facts: {(facts : Array Term)}"
   let lctxBeforeIntros ← getLCtx
   let originalMainGoal ← getMainGoal
   let goalType ← originalMainGoal.getType
@@ -318,7 +336,6 @@ def evalQuerySMT : Tactic
   replaceMainGoal [absurd]
   withMainContext do
     let lctxAfterIntros ← getLCtx
-    -- **TODO**: Figure out how to properly propagate `goalDecls` in getDuperCoreSMTLemmas
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
     let goalsBeforeSkolemization ← getGoals
     try
@@ -330,14 +347,15 @@ def evalQuerySMT : Tactic
     let goalsAfterSkolemization ← getGoals
     withMainContext do -- Use updated main context so that `collectAllLemmas` collects from the appropriate context
       let lctxAfterSkolemization ← getLCtx
-      let hintElems : Syntax.TSepArray `Auto.hintelem "," := { elemsAndSeps := facts }
+      let hintElems : TSyntaxArray `Auto.hintelem ← factsToHintElems facts
+      trace[querySMT.debug] "hintElems: {hintElems}"
       let (lemmas, inhFacts) ←
         try
           /- **TODO** The current approach of assuming all facts from `facts` can be treated as `hintElems` causes failures
             when attempting to use non-Prop hints like `Set.ite`. Need to improve the current approach so that things like `Set.ite`
             will still be supported -/
-          if factsContainsQuerySMTStar then collectAllLemmas (← `(hints| [*, $hintElems,*])) #[] #[]
-          else collectAllLemmas (← `(hints| [$hintElems,*])) #[] #[]
+          if factsContainsQuerySMTStar then collectAllLemmas (← `(Auto.hints| [*, $hintElems,*])) #[] #[]
+          else collectAllLemmas (← `(Auto.hints| [$hintElems,*])) #[] #[]
         catch e =>
           throwTranslationError e
       let SMTHints ←
@@ -376,7 +394,7 @@ def evalQuerySMT : Tactic
             preprocessing := none, includeExpensiveRules := none, selFunction := none }
         let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
           try
-            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings selectorInfos smtLemmas lemmas facts duperConfigOptions
+            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts goalDecls selectorInfos smtLemmas factsContainsQuerySMTStar additionalFacts.contains duperConfigOptions
           catch e =>
             throwDuperError e
         trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"

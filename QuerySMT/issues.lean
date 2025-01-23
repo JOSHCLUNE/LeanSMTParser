@@ -1,5 +1,11 @@
 import QuerySMT
 import Hammer
+import Aesop
+import Mathlib.Tactic.Linarith
+
+set_option auto.smt true
+set_option auto.smt.solver.name "cvc5"
+set_option auto.smt.dumpHints true
 
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
@@ -23,14 +29,16 @@ set_option duper.collectDatatypes true
 -- Issue: Adding the fact `h7` causes Duper to stop succeeding and start saturating
 -- Update: The reason for this is the same as the issue below. Duper doesn't know that `-x` = `0 - x`
 
+set_option pp.rawOnError true in
 set_option trace.duper.printProof true in
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1) : Pos 2 := by
-  querySMT -- This problem works without `h7`
+  querySMT [*, h4, h5] -- This problem works without `h7`
 
 set_option trace.duper.saturate.debug true in
 set_option trace.querySMT.debug true in
+set_option pp.rawOnError true in
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1)
@@ -117,3 +125,56 @@ example (x y z : Nat) : x < y → y < z → x < z := by
 -- **TODO** Investigate whether `a < b` and `b > a` are equally usable
 -- for querySMT (there might be a world where GT appears in the problem but lean-auto
 -- and/or cvc5 normalize it to LT, resulting in an issue)
+
+-------------------------------------------------------------------------------------------
+-- `querySMT` itself succeeds, but the tactic it suggests doesn't. We can see that calling `duper`
+-- after `autoGetHints` succeeds, so the issue is that when filtering the Duper core, we're eliminating
+-- some `smtLemma`s that are actually needed.
+
+set_option trace.auto.inspectMVarAssignments true in
+set_option trace.auto.printLemmas true in
+set_option trace.auto.runAuto.printLemmas true in
+set_option trace.auto.lamReif.printProofs true in
+set_option trace.duper.printProof true in
+set_option trace.duper.proofReconstruction true in
+theorem test (Even Odd : Int → Prop)
+  (h1 : ∀ x : Int, ∀ y : Int, Odd (x) → Odd (y) → Even (x + y))
+  (h2 : ∀ x : Int, ∀ y : Int, Odd (x) → Even (y) → Odd (x + y))
+  (h3 : ∀ x : Int, Even (x) ↔ ¬ Odd (x))
+  (h4 : Odd (1)) : Even (10) := by
+  /-
+  have : Int.ofNat 32 + Int.ofNat 28 = Int.ofNat 60 := sorry
+  have : Int.ofNat 14 + Int.ofNat 14 = Int.ofNat 28 := sorry
+  have : Int.ofNat 21 + Int.ofNat 11 = Int.ofNat 32 := sorry
+  have : Int.ofNat 1 + Int.ofNat 1 = Int.ofNat 2 := sorry
+  have : Int.ofNat 10 + Int.ofNat 10 = Int.ofNat 20 := sorry
+  have : Int.ofNat 10 + Int.ofNat 20 = Int.ofNat 30 := sorry
+  have : Int.ofNat 1 + Int.ofNat 20 = Int.ofNat 21 := sorry
+  have : Int.ofNat 1 + Int.ofNat 2 = Int.ofNat 3 := sorry
+  have : Int.ofNat 30 + Int.ofNat 30 = Int.ofNat 60 := sorry
+  have : Int.ofNat 1 + Int.ofNat 10 = Int.ofNat 11 := sorry
+  have : Int.ofNat 3 + Int.ofNat 11 = Int.ofNat 14 := sorry
+  duper? [*] {preprocessing := monomorphization, includeExpensiveRules := false}
+  -/
+  querySMT
+
+-------------------------------------------------------------------------------------------
+-- `Nat` proof reconstruction not yet supported
+set_option auto.smt true in
+set_option auto.smt.solver.name "cvc5" in
+set_option auto.smt.dumpHints true in
+example (x y z : Nat) : x ≤ y → y ≤ z → x ≤ z := by
+  have : Int.ofNat y ≤ Int.ofNat z → ¬Int.ofNat y + -Int.ofNat 1 * Int.ofNat z ≥ Int.ofNat 1 := sorry
+  have : ¬Int.ofNat x ≤ Int.ofNat z → Int.ofNat x + -Int.ofNat 1 * Int.ofNat z ≥ Int.ofNat 1 := sorry
+  have : Int.ofNat x ≤ Int.ofNat y → ¬Int.ofNat x + -Int.ofNat 1 * Int.ofNat y ≥ Int.ofNat 1 := sorry
+  have :
+    let _let_1 := -Int.ofNat 1 * Int.ofNat z;
+    (Int.ofNat x + -Int.ofNat 1 * Int.ofNat y ≥ Int.ofNat 1 ∨ Int.ofNat y + _let_1 ≥ Int.ofNat 1) ∨
+      ¬Int.ofNat x + _let_1 ≥ Int.ofNat 1 :=
+    sorry
+  have :
+    let _let_1 := Int.ofNat y + -Int.ofNat 1 * Int.ofNat z;
+    _let_1 < Int.ofNat 1 → _let_1 ≤ Int.ofNat 0 :=
+    sorry
+  zify at * -- This line is necessary to get `duper` to work **TODO** Add this to `querySMT`
+  duper [*]
