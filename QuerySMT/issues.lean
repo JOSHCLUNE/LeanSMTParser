@@ -161,3 +161,15 @@ end
 
 example (n : Nat) : MyEven n ↔ MyOdd (n + 1) := by
   sorry
+
+-------------------------------------------------------------------------------------------
+/- `hammer` succeeds on this example, but the tactic suggestion it recommends fails. There may be multiple
+   points of failure here, but at least one point of failure is that `h1 : p` is being recognized by auto
+   as an inhabitation fact (rather than a lemma that belongs as part of the unsat core). When we specify that
+   `p`, `q`, and `r` are `Prop`s, then the bug goes away, but we should be able to handle this example regardless -/
+
+example (h1 : p) (h2 : p → q) (h3 : r) : q := by
+  sorry -- hammer [] [*] {simpTarget := no_target} -- `h1` and `h2` not included in suggested Duper call
+
+example (p q r : Prop) (h1 : p) (h2 : p → q) (h3 : r) : q := by
+  sorry -- hammer [] [*] {simpTarget := no_target} -- `h1` and `h2` are included in suggested Duper call

@@ -316,7 +316,7 @@ def evalQuerySMT : Tactic
       let lctxAfterSkolemization ← getLCtx
       let (lemmas, inhFacts) ←
         try
-          collectAllLemmas (← `(Auto.hints| $hints)) #[] #[]
+          collectAllLemmas hints #[] #[] -- **TODO** Add `ngoalsAndBinders`
         catch e =>
           throwTranslationError e
       let SMTHints ←

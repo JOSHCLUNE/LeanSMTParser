@@ -58,7 +58,7 @@ structure ConfigurationOptions where
 syntax hammerStar := "*"
 syntax (name := hammer) "hammer"
   (ppSpace "[" ((simpErase <|> simpLemma),*,?)  "]")
-  (ppSpace "[" (hammerStar <|> term),* "]")
+  (ppSpace Auto.hints)
   (ppSpace "{"Hammer.configOption,*,?"}")? : tactic
 
 macro_rules
@@ -194,12 +194,11 @@ def errorIsProofFitError (e : Exception) : IO Bool := do
   let eStr ← e.toMessageData.toString
   return "hammer successfully translated the problem and reconstructed an external prover's proof, but encountered an issue in applying said proof.".isPrefixOf eStr
 
-/-
 @[tactic hammer]
 def evalHammer : Tactic
-| `(tactic| hammer%$stxRef [$simpLemmas,*] [$facts,*] {$configOptions,*}) => withMainContext do
+| `(tactic| hammer%$stxRef [$simpLemmas,*] $hints {$configOptions,*}) => withMainContext do
   let configOptions ← parseConfigOptions configOptions
-  let (factsContainsHammerStar, facts) := removeHammerStar facts
+  let ⟨facts, _, includeLCtx⟩ ← Auto.parseHints hints
 
   let simpPreprocessingSuggestion ←
     tryCatchRuntimeEx (do
@@ -260,19 +259,13 @@ def evalHammer : Tactic
   withMainContext do
     let lctxAfterIntros ← getLCtx
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
-    let formulas ← withDuperOptions $ collectAssumptions facts factsContainsHammerStar goalDecls
     withSolverOptions configOptions do
-      let lemmas ← formulasToAutoLemmas formulas
-      -- Calling Auto.unfoldConstAndPreprocessLemma is an essential step for the monomorphization procedure
-      let lemmas ←
-        tryCatchRuntimeEx
-          (lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[]))
-          throwTranslationError
-      let inhFacts ←
-        tryCatchRuntimeEx
-          Auto.Inhabitation.getInhFactsFromLCtx
-          throwTranslationError
-      let hints ←
+      let (lemmas, inhFacts) ←
+        try
+          collectAllLemmas hints #[] #[]
+        catch e =>
+          throwTranslationError e
+      let solverHints ←
         tryCatchRuntimeEx (do
           trace[hammer.debug] "Lemmas passed to runAutoGetHints {lemmas}"
           trace[hammer.debug] "inhFacts passed to runAutoGetHints {inhFacts}"
@@ -287,13 +280,14 @@ def evalHammer : Tactic
       match configOptions.solver with
       | zipperposition =>
         let mut tacticsArr := simpPreprocessingSuggestion -- The array of tactics that will be suggested to the user
-        let unsatCoreDerivLeafStrings := hints.1
-        let duperConfigOptions := -- We set preprocessing to `NoPreprocessing` because repreprocessing the lemmas would be redundant
+        let unsatCoreDerivLeafStrings := solverHints.1
+        trace[hammer.debug] "unsatCoreDerivLeafStrings: {unsatCoreDerivLeafStrings}"
+        let duperConfigOptions :=
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
             preprocessing := none, selFunction := none }
         let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ←
           tryCatchRuntimeEx
-            (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings #[] [] lemmas (fun _ => false) facts duperConfigOptions)
+            (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts goalDecls #[] [] includeLCtx (fun _ => false) duperConfigOptions)
             throwDuperError
         -- Build the `intros ...` tactic with appropriate names
         let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
@@ -329,6 +323,5 @@ def evalHammer : Tactic
           throwProofFitError
       | cvc5 => throwError "evalHammer :: cvc5 support not yet implemented"
 | _ => throwUnsupportedSyntax
--/
 
 end Hammer
