@@ -253,8 +253,6 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
--- **TODO** Add something like `Int.natCast_add` and `Int.natCast_mul` for `<` and `≤`
-
 -- **TODO** Replace all `try-catch` statements with `tryCatchRuntimeEx` calls as in `Hammer.lean`
 @[tactic querySMT]
 def evalQuerySMT : Tactic
@@ -262,12 +260,13 @@ def evalQuerySMT : Tactic
   let ⟨facts, _, includeLCtx⟩ ← Auto.parseHints hints
   let additionalFacts :=
     #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
-      (← `(term| $(mkIdent ``Int.zero_sub))),
       (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
-      (← `(term| $(mkIdent ``lt_iff_not_ge))),
+      (← `(term| $(mkIdent ``lt_iff_not_ge))), (← `(term| $(mkIdent ``Int.ofNat_inj))),
+      (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
       (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))),
       (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
-      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero)))]
+      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
+      (← `(term| $(mkIdent ``Int.zero_sub)))]
   let facts := facts ++ additionalFacts
   trace[querySMT.debug] "facts: {(facts)}"
   let lctxBeforeIntros ← getLCtx

@@ -3,6 +3,10 @@ import Hammer
 import Aesop
 import Mathlib.Tactic.Linarith
 
+set_option auto.smt true
+set_option auto.smt.solver.name "cvc5"
+set_option auto.smt.dumpHints true
+
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
@@ -23,11 +27,20 @@ set_option auto.getHints.failOnParseError true
 example (x y z : Int) : x ≤ y → y ≤ z → x ≤ z := by
   querySMT
 
+example (x y z : Nat) : x ≤ y → y ≤ z → x ≤ z := by
+  querySMT
+
 example (x y z : Int) : x < y → y < z → x < z := by
+  querySMT
+
+example (x y z : Nat) : x < y → y < z → x < z := by
   querySMT
 
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
   querySMT -- `proveSMTLemma` is insufficient to prove the theory lemma returned by cvc5
+
+example {a b c d e f : Nat} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
+  querySMT
 
 example : True → ∀ x : Int, ∀ y : Int, ∀ z : Int, x ≤ y → y ≤ z → x ≤ z := by
   querySMT
@@ -35,10 +48,22 @@ example : True → ∀ x : Int, ∀ y : Int, ∀ z : Int, x ≤ y → y ≤ z �
 example : ∀ x : Int × Int × Int, x.1 ≤ x.2.1 → x.2.1 ≤ x.2.2 → x.1 ≤ x.2.2 := by
   querySMT
 
+example : ∀ x : Nat × Nat × Nat, x.1 ≤ x.2.1 → x.2.1 ≤ x.2.2 → x.1 ≤ x.2.2 := by
+  querySMT
+
 example (x : Int) : ∃ y : Int, y < x := by
   querySMT -- `proveSMTLemma` is insufficient to prove the lemma returned by cvc5 (basically just double-negated goal)
 
 example (x : Int) (h : ∃ y : Int, 2 * y = x) : x ≠ 1 := by
+  querySMT
+
+example (x : Nat) (h : ∃ y : Int, 2 * y = x) : x ≠ 1 := by
+  querySMT
+
+example (x : Nat) (h : ∃ y : Nat, 2 * y = x) : x ≠ 1 := by
+  querySMT
+
+example (x : Int) (h : ∃ y : Nat, 2 * y = x) : x ≠ 1 := by
   querySMT
 
 example (x : Int) (h : True ∧ ∃ y : Int, 2 * y = x) : x ≠ 1 := by
@@ -52,6 +77,11 @@ example (x y : Int) (h : x * y ≠ 0) : x ≠ 0 ∧ y ≠ 0 := by
 
 example : ∀ x : Int, ∀ y : Int, x * y ≠ 0 → x ≠ 0 ∧ y ≠ 0 := by
   querySMT
+
+example : ∀ x : Nat, ∀ y : Nat, x * y ≠ 0 → x ≠ 0 ∧ y ≠ 0 := by
+  sorry -- `querySMT` thinks it succeeds but Duper's proof has error (see issues.lean)
+
+-- **TODO** Continue natifying from here
 
 example (P : Int × Int → Prop) (h : ∀ x : Int, ∀ y : Int, P (x, y)) :
   ∃ z : Int × Int, P z := by
@@ -244,3 +274,57 @@ example : 50 + 50 = 100 := by
   simp (config :=
     { decide := false, arith := false, autoUnfold := false, dsimp := false,
       implicitDefEqProofs := false, beta := false, zeta := false, ground := false }) only
+
+example : 50 + 50 = 100 := by
+  simp -decide -arith -autoUnfold -dsimp -implicitDefEqProofs -beta -zeta -ground -unfoldPartialApp only
+
+example {α : Type u} (x : α) (t : Tree α) : t ≠ Tree.node x t t := by
+  querySMT
+
+example (a b c : Nat) (h1 : a + b = c) (h2 : b + c = a) (h3 : c + a = b) (h4 : a ≠ 0) : False := by
+  querySMT
+
+example (a b c : Nat) (h1 : a + b = c) : a ≤ c ∧ b ≤ c := by
+  querySMT
+
+mutual
+    inductive MyTree (α : Type u) where
+      | node : α → MyTreeList α → MyTree α
+
+    inductive MyTreeList (α : Type u) where
+      | nil  : MyTreeList α
+      | cons : MyTree α → MyTreeList α → MyTreeList α
+end
+
+example (x y : MyTree Nat)
+  (h1 : x = MyTree.node 0 MyTreeList.nil)
+  (h2 : y = MyTree.node 1 MyTreeList.nil) :
+  x ≠ y := by
+  querySMT
+
+-- **NOTE** None of `h1` through `h3` are needed to prove the goal.
+example (t : MyTree Nat) (sum : MyTree Nat → Nat) (sumList : MyTreeList Nat → Nat)
+  (h1 : ∀ n : Nat, ∀ l : MyTreeList Nat, sum (MyTree.node n l) = n + sumList l)
+  (h2 : ∀ n : Nat, sumList MyTreeList.nil = n)
+  (h3 : ∀ n : Nat, ∀ t : MyTree Nat, ∀ l : MyTreeList Nat, sumList (MyTreeList.cons t l) = sum t + sumList l) :
+  sum t ≥ 0 := by
+  querySMT
+
+structure myStructure2 where
+  field1 : Nat
+  field2 : Nat
+
+open myStructure
+
+example : myStructure2.mk 0 (1 + 1) = myStructure2.mk 0 2 := by
+  querySMT
+
+example (x : myStructure2) : x.field1 ≥ 0 := by
+  querySMT
+
+example (x : myStructure2 × myStructure2) : x.2.field1 ≥ 0 := by
+  querySMT
+
+example (x z : Int) (hxz : x + z < 2) (f : Int → Int)
+  (hz : 0 < z) (hx : 0 ≤ x) : ∀ y : Int, f (x + y) = f y := by
+  querySMT
