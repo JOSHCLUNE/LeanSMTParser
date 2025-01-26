@@ -1,6 +1,7 @@
 import QuerySMT
+import QuerySMT.PremiseSelection -- **TODO** Improve file structure
 
-open Lean Meta Parser Elab Tactic Auto Duper QuerySMT
+open Lean Meta Parser Elab Tactic Auto Duper QuerySMT PremiseSelection Syntax
 
 initialize Lean.registerTraceClass `hammer.debug
 
@@ -48,21 +49,26 @@ syntax (&"solver" " := " Hammer.solverOption) : Hammer.configOption
 syntax (&"goalHypPrefix" " := " strLit) : Hammer.configOption
 syntax (&"negGoalLemmaName" " := " strLit) : Hammer.configOption
 syntax (&"simpTarget" " := " Hammer.simpTarget) : Hammer.configOption
+syntax (&"premiseRetrievalK" " := " numLit) : Hammer.configOption
 
 structure ConfigurationOptions where
   solver : Solver
   goalHypPrefix : String
   negGoalLemmaName : String
   simpTarget : SimpTarget
+  premiseRetrievalK : Nat
 
 syntax hammerStar := "*"
-syntax (name := hammer) "hammer"
+syntax (name := hammerCore) "hammerCore"
   (ppSpace "[" ((simpErase <|> simpLemma),*,?)  "]")
-  (ppSpace Auto.hints)
+  (ppSpace "[" (hammerStar <|> term),* "]")
   (ppSpace "{"Hammer.configOption,*,?"}")? : tactic
 
+syntax (name := hammer) "hammer" (ppSpace "{"Hammer.configOption,*,?"}")? : tactic
+
 macro_rules
-| `(tactic| hammer [$simpLemmas,*] [$facts,*]) => `(tactic| hammer [$simpLemmas,*] [$facts,*] {})
+| `(tactic| hammerCore [$simpLemmas,*] [$facts,*]) => `(tactic| hammerCore [$simpLemmas,*] [$facts,*] {})
+| `(tactic| hammer) => `(tactic| hammer {})
 
 /-- Given a Syntax.TSepArray of facts provided by the user (which may include `*` to indicate that hammer should read in the
     full local context) `removeHammerStar` returns the Syntax.TSepArray with `*` removed and a boolean that indicates whether `*`
@@ -90,6 +96,7 @@ def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : 
   let mut goalHypPrefix := ""
   let mut negGoalLemmaName := ""
   let mut simpTargetOpt := none
+  let mut premiseRetrievalKOpt := none
   for configOptionStx in configOptionsStx do
     match configOptionStx with
     | `(Hammer.configOption| solver := $solverName:Hammer.solverOption) =>
@@ -104,6 +111,9 @@ def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : 
     | `(Hammer.configOption| simpTarget := $simpTarget:Hammer.simpTarget) =>
       if simpTargetOpt.isNone then simpTargetOpt ← elabSimpTarget simpTarget
       else throwError "Erroneous invocation of hammer: The simpMode option has been specified multiple times"
+    | `(Hammer.configOption| premiseRetrievalK := $premiseRetrievalK:num) =>
+      if premiseRetrievalKOpt.isNone then premiseRetrievalKOpt := some (TSyntax.getNat premiseRetrievalK)
+      else throwError "Erroneous invocation of hammer: The premisesRetrievalK option has been specified multiple times"
     | _ => throwUnsupportedSyntax
   -- Set default values for options that were not specified
   let solver :=
@@ -116,7 +126,11 @@ def parseConfigOptions (configOptionsStx : TSyntaxArray `Hammer.configOption) : 
     match simpTargetOpt with
     | none => all
     | some simpTarget => simpTarget
-  return {solver := solver, goalHypPrefix := goalHypPrefix, negGoalLemmaName := negGoalLemmaName, simpTarget := simpTarget}
+  let premiseRetrievalK :=
+    match premiseRetrievalKOpt with
+    | none => 16
+    | some premiseRetrievalK => premiseRetrievalK
+  return {solver := solver, goalHypPrefix := goalHypPrefix, negGoalLemmaName := negGoalLemmaName, simpTarget := simpTarget, premiseRetrievalK := premiseRetrievalK}
 
 def withSolverOptions [Monad m] [MonadError m] [MonadWithOptions m] (configOptions : ConfigurationOptions) (x : m α) : m α :=
   match configOptions.solver with
@@ -194,12 +208,8 @@ def errorIsProofFitError (e : Exception) : IO Bool := do
   let eStr ← e.toMessageData.toString
   return "hammer successfully translated the problem and reconstructed an external prover's proof, but encountered an issue in applying said proof.".isPrefixOf eStr
 
-@[tactic hammer]
-def evalHammer : Tactic
-| `(tactic| hammer%$stxRef [$simpLemmas,*] $hints {$configOptions,*}) => withMainContext do
-  let configOptions ← parseConfigOptions configOptions
-  let ⟨facts, _, includeLCtx⟩ ← Auto.parseHints hints
-
+def runHammerCore (stxRef : Syntax) (simpLemmas : Syntax.TSepArray [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma] ",")
+  (facts : TSepArray `term ",") (includeLCtx : Bool) (configOptions : ConfigurationOptions) : TacticM Unit := withMainContext do
   let simpPreprocessingSuggestion ←
     tryCatchRuntimeEx (do
       match configOptions.simpTarget with
@@ -259,12 +269,20 @@ def evalHammer : Tactic
   withMainContext do
     let lctxAfterIntros ← getLCtx
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
+    -- **NOTE** We collect `formulas` using `Duper.collectAssumptions` rather than `Auto.collectAllLemmas` because `Auto.collectAllLemmas`
+    -- does not currently support a mode where unusable facts are ignored.
+    let formulas ← withDuperOptions $ collectAssumptions facts includeLCtx goalDecls
     withSolverOptions configOptions do
-      let (lemmas, inhFacts) ←
-        try
-          collectAllLemmas hints #[] #[]
-        catch e =>
-          throwTranslationError e
+      let lemmas ← formulasToAutoLemmas formulas
+      -- Calling `Auto.unfoldConstAndPreprocessLemma` is an essential step for the monomorphization procedure
+      let lemmas ←
+        tryCatchRuntimeEx
+          (lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[]))
+          throwTranslationError
+      let inhFacts ←
+        tryCatchRuntimeEx
+          Auto.Inhabitation.getInhFactsFromLCtx
+          throwTranslationError
       let solverHints ←
         tryCatchRuntimeEx (do
           trace[hammer.debug] "Lemmas passed to runAutoGetHints {lemmas}"
@@ -284,7 +302,7 @@ def evalHammer : Tactic
         trace[hammer.debug] "unsatCoreDerivLeafStrings: {unsatCoreDerivLeafStrings}"
         let duperConfigOptions :=
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
-            preprocessing := none, selFunction := none }
+            preprocessing := some PreprocessingOption.FullPreprocessing, selFunction := none }
         let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ←
           tryCatchRuntimeEx
             (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts goalDecls #[] [] includeLCtx (fun _ => false) duperConfigOptions)
@@ -322,6 +340,25 @@ def evalHammer : Tactic
           (absurd.assign duperProof)
           throwProofFitError
       | cvc5 => throwError "evalHammer :: cvc5 support not yet implemented"
+
+@[tactic hammerCore]
+def evalHammerCore : Tactic
+| `(tactic| hammerCore%$stxRef [$simpLemmas,*] [$facts,*] {$configOptions,*}) => do
+  let configOptions ← parseConfigOptions configOptions
+  let (includeLCtx, facts) := removeHammerStar facts
+  runHammerCore stxRef simpLemmas facts includeLCtx configOptions
+| _ => throwUnsupportedSyntax
+
+@[tactic hammer]
+def evalHammer : Tactic
+| `(tactic| hammer%$stxRef {$configOptions,*}) => withMainContext do
+  let goal ← getMainGoal
+  let configOptions ← parseConfigOptions configOptions
+  let premises ← withOptions (fun o => o.set `printTimeInformation false) $ retrievePremises goal configOptions.premiseRetrievalK
+  trace[hammer.debug] "Premises retrieved: {premises}"
+  let premises := premises.map (fun p => p.name)
+  let premises ← premises.mapM (fun p => return (← `(term| $(mkIdent p))))
+  runHammerCore stxRef ∅ premises true configOptions
 | _ => throwUnsupportedSyntax
 
 end Hammer

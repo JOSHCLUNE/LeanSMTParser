@@ -126,8 +126,12 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
   let userFacts : Array Term := userFacts
   let mut coreUserFacts := #[]
   for factStx in userFacts do
-    let factStr := s!"❰{factStx}❱" -- This `factStr` is based on the leaf that `Auto.collectUserLemmas` generates for `fact`
-    if unsatCoreDerivLeafStrings.any (fun l => (l.splitOn factStr).length > 1) || alwaysInclude factStx then
+    -- **TODO** Modify `Duper.collectAssumptions` to output a leaf containing `s!"❰{factStx}❱"` so that we only need to check `factStr1`
+    let factStr1 := s!"❰{factStx}❱" -- This `factStr` is based on the leaf that `Auto.collectUserLemmas` generates for `fact`
+    let factStr2 := s!"false, {factStx}" -- This `factStr` is based on the leaf that `Duper.collectAssumptions` generates for `fact`
+    let factStr1InUnsatCore := unsatCoreDerivLeafStrings.contains factStr1
+    let factStr2InUnsatCore := unsatCoreDerivLeafStrings.contains factStr2
+    if factStr1InUnsatCore || factStr2InUnsatCore || alwaysInclude factStx then
       coreUserFacts := coreUserFacts.push factStx
   -- Build `smtDeclInfos` from `smtLemmas` (after instantiating loose bound variables corresponding to selectors)
   let mut selectorFVars := #[]
@@ -253,6 +257,10 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
+-- **TODO** Add more lemmas like `Int.natAbs_ofNat` from Int/Order.lean that give casting rules for
+-- `natAbs` (most of the casting rules so far deal with `Int.ofNat` but we need to deal with `natAbs`
+-- too to handle problems where Nats appear as function inputs)
+
 -- **TODO** Replace all `try-catch` statements with `tryCatchRuntimeEx` calls as in `Hammer.lean`
 @[tactic querySMT]
 def evalQuerySMT : Tactic
@@ -263,10 +271,10 @@ def evalQuerySMT : Tactic
       (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
       (← `(term| $(mkIdent ``lt_iff_not_ge))), (← `(term| $(mkIdent ``Int.ofNat_inj))),
       (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
-      (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))),
+      (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
+      (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
       (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
-      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
-      (← `(term| $(mkIdent ``Int.zero_sub)))]
+      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero)))]
   let facts := facts ++ additionalFacts
   trace[querySMT.debug] "facts: {(facts)}"
   let lctxBeforeIntros ← getLCtx
