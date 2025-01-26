@@ -5,7 +5,7 @@ namespace PremiseSelection
 open Lean Meta
 
 register_option printTimeInformation : Bool := {
-  defValue := true
+  defValue := false
   descr := "Whether to print the total time taken by premise retrieval"
 }
 
