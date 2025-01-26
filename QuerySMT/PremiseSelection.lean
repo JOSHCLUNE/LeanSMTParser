@@ -16,14 +16,24 @@ def getPrintTimeInformationM : CoreM Bool := do
   let opts ← getOptions
   return getPrintTimeInformation opts
 
+register_option hammer.premiseSelection.apiUrl : String := {
+  defValue := "http://52.206.70.13/retrieve"
+  descr := "The URL of the premise retrieval API"
+}
+
+def getPremiseSelectionApiUrl (opts : Options) : String :=
+  hammer.premiseSelection.apiUrl.get opts
+
+def getPremiseSelectionApiUrlM : CoreM String := do
+  let opts ← getOptions
+  return getPremiseSelectionApiUrl opts
+
 /-- From tactic_benchmark.lean -/
 def withSeconds [Monad m] [MonadLiftT BaseIO m] (act : m α) : m (α × Float) := do
   let start ← IO.monoNanosNow
   let a ← act
   let stop ← IO.monoNanosNow
   return (a, (stop - start).toFloat / 1000000000)
-
-def premiseRetrievalApiUrl := "http://52.206.70.13/retrieve"
 
 structure PremiseSuggestion where
   name : Name
@@ -36,10 +46,8 @@ instance : ToString PremiseSuggestion where
 instance : ToMessageData PremiseSuggestion where
   toMessageData p := s!"{p.name} ({p.score})"
 
-def retrievePremisesCore (state : String) (importedModules localPremises : Option (Array Name)) (k : Nat) :
-    IO (Array PremiseSuggestion) := do
-  let apiUrl := premiseRetrievalApiUrl
-
+def retrievePremisesCore (apiUrl : String) (state : String) (importedModules localPremises : Option (Array Name))
+  (k : Nat) : IO (Array PremiseSuggestion) := do
   let data := Json.mkObj [
     ("state", .str state),
     ("imported_modules", toJson importedModules),
@@ -70,10 +78,11 @@ def retrievePremises (goal : MVarId) (k : Nat := 16) : MetaM (Array PremiseSugge
   let state := (← ppGoal goal).pretty
   let importedModules := env.allImportedModuleNames
   let localPremises := env.constants.map₂.foldl (fun arr name _ => arr.push name) #[]
+  let apiUrl ← getPremiseSelectionApiUrlM
   -- above preparation is ~1ms?
 
   let (s, t) ← withSeconds do
-    retrievePremisesCore state importedModules localPremises k
+    retrievePremisesCore apiUrl state importedModules localPremises k
   if ← getPrintTimeInformationM then logInfo s!"Time: {t}"
 
   return s
