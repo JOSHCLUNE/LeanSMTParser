@@ -4,13 +4,13 @@ namespace PremiseSelection
 
 open Lean Meta
 
-register_option printTimeInformation : Bool := {
+register_option hammer.premiseSelection.printTimeInformation : Bool := {
   defValue := false
   descr := "Whether to print the total time taken by premise retrieval"
 }
 
 def getPrintTimeInformation (opts : Options) : Bool :=
-  printTimeInformation.get opts
+  hammer.premiseSelection.printTimeInformation.get opts
 
 def getPrintTimeInformationM : CoreM Bool := do
   let opts ← getOptions
