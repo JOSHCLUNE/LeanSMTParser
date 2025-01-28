@@ -31,10 +31,16 @@ example (x y z : Int) : x ≤ y → y ≤ z → x ≤ z := by
 example (x y z : Nat) : x ≤ y → y ≤ z → x ≤ z := by
   querySMT
 
+example (x z : Nat) (y : Int) : x ≤ y → y ≤ z → x ≤ z := by
+  querySMT
+
 example (x y z : Int) : x < y → y < z → x < z := by
   querySMT
 
 example (x y z : Nat) : x < y → y < z → x < z := by
+  querySMT
+
+example (x y : Nat) (z : Int) : x < y → y < z → x < z := by
   querySMT
 
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by

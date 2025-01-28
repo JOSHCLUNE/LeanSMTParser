@@ -257,24 +257,30 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
--- **TODO** Add more lemmas like `Int.natAbs_ofNat` from Int/Order.lean that give casting rules for
--- `natAbs` (most of the casting rules so far deal with `Int.ofNat` but we need to deal with `natAbs`
--- too to handle problems where Nats appear as function inputs)
-
 -- **TODO** Replace all `try-catch` statements with `tryCatchRuntimeEx` calls as in `Hammer.lean`
 @[tactic querySMT]
 def evalQuerySMT : Tactic
 | `(querySMT | querySMT%$stxRef $hints {$configOptions,*}) => withMainContext do
   let ⟨facts, _, includeLCtx⟩ ← Auto.parseHints hints
+  -- **TODO** Determine if I need to include an additional fact indicating that `∀ x : Int, ∀ y : Int, x ≤ y ∨ y ≤ x`
+  -- **TODO** Experiment with ideal set of additionalFacts once we have a proper evaluation set up. Currently, I am
+  -- trying to include only additionalFacts that evaluate to unit clauses
   let additionalFacts :=
     #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
       (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
-      (← `(term| $(mkIdent ``lt_iff_not_ge))), (← `(term| $(mkIdent ``Int.ofNat_inj))),
+      (← `(term| $(mkIdent ``lt_iff_not_ge))),
+      -- (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
+      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      -- (← `(term| $(mkIdent ``Int.natAbs_eq))),
+      -- (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
       (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
       (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
-      (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      -- (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
+      -- (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
       (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
-      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero)))]
+      (← `(term| $(mkIdent ``Int.natAbs_mul))),
+      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
+      (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one)))]
   let facts := facts ++ additionalFacts
   trace[querySMT.debug] "facts: {(facts)}"
   let lctxBeforeIntros ← getLCtx

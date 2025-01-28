@@ -173,3 +173,44 @@ example (h1 : p) (h2 : p → q) (h3 : r) : q := by
 
 example (p q r : Prop) (h1 : p) (h2 : p → q) (h3 : r) : q := by
   hammerCore [] [*] {simpTarget := no_target} -- `h1` and `h2` are included in suggested Duper call
+
+-------------------------------------------------------------------------------------------
+-- Duper's preprocessing doesn't preserve knowledge about Booleans, causing it to fail on the Bool equivalent
+-- of a problem even though Duper can solve the Prop version
+
+mutual
+  inductive IntTree where
+    | node : Int → IntTreeList → IntTree
+
+  inductive IntTreeList where
+    | nil  : IntTreeList
+    | cons : IntTree → IntTreeList → IntTreeList
+end
+
+open IntTree IntTreeList
+
+mutual
+  def contains1 : IntTree → Int → Prop
+  | node x l, y => x = y ∨ contains2 l y
+
+  def contains2 : IntTreeList → Int → Prop
+  | nil, _ => False
+  | cons t l, y => contains1 t y ∨ contains2 l y
+end
+
+mutual
+  def contains3 : IntTree → Int → Bool
+  | node x l, y => x == y || contains4 l y
+
+  def contains4 : IntTreeList → Int → Bool
+  | nil, _ => false
+  | cons t l, y => contains3 t y || contains4 l y
+end
+
+-- `Prop` version
+example : contains1 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (x = a ∨ x = b ∨ x = c) := by
+  duper [*, contains1, contains2]
+
+-- `Bool` version
+example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (x = a ∨ x = b ∨ x = c) := by
+  sorry -- duper [*, contains3, contains4] -- Fails
