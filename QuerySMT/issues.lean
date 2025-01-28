@@ -214,3 +214,22 @@ example : contains1 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (
 -- `Bool` version
 example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (x = a ∨ x = b ∨ x = c) := by
   sorry -- duper [*, contains3, contains4] -- Fails
+
+-------------------------------------------------------------------------------------------
+-- Duper is able to solve this problem (with full preprocessing) but `hammerCore` fails when
+-- given exactly the information it requires. To thicken the plot, `hammerCore` can solve
+-- both directions of the bi-implication, but not the bi-implication itself.
+
+variable [Group G]
+
+theorem unique_identity : ∀ (e : G), (∀ a, e * a = a) ↔ (e = 1) := by
+  -- hammerCore [] [*, mul_assoc, one_mul, inv_mul_cancel] {simpTarget := no_target} -- This fails
+  duper [mul_assoc, one_mul, inv_mul_cancel] -- Duper succeeds
+
+-- The forward direction is fine
+theorem unique_identity_forward : ∀ (e : G), (∀ a, e * a = a) → (e = 1) := by
+  hammerCore [] [*, mul_assoc, one_mul, inv_mul_cancel] {simpTarget := no_target}
+
+-- The backward direction is also fine
+theorem unique_identity_backward : ∀ (e : G), (e = 1) → (∀ a, e * a = a) := by
+  hammerCore [] [*, mul_assoc, one_mul, inv_mul_cancel] {simpTarget := no_target}
