@@ -75,7 +75,9 @@ def retrievePremisesCore (apiUrl : String) (state : String) (importedModules loc
 
 def retrievePremises (goal : MVarId) (k : Nat := 16) : MetaM (Array PremiseSuggestion) := do
   let env ← getEnv
-  let state := (← ppGoal goal).pretty
+  let state ← withOptions (fun o => (o.set `pp.notation false).set `pp.fullNames true) $ ppGoal goal
+  let state := state.pretty
+  trace[hammer.debug] m!"State: {state}"
   let importedModules := env.allImportedModuleNames
   let localPremises := env.constants.map₂.foldl (fun arr name _ => arr.push name) #[]
   let apiUrl ← getPremiseSelectionApiUrlM
