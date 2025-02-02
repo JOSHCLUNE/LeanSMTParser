@@ -233,3 +233,17 @@ theorem unique_identity_forward : ∀ (e : G), (∀ a, e * a = a) → (e = 1) :=
 -- The backward direction is also fine
 theorem unique_identity_backward : ∀ (e : G), (e = 1) → (∀ a, e * a = a) := by
   hammerCore [] [*, mul_assoc, one_mul, inv_mul_cancel] {simpTarget := no_target}
+
+-------------------------------------------------------------------------------------------
+-- This is a relatively easy puzzle that Duper can solve but `hammerCore` fails to produce a
+-- translation that Zipperposition can solve.
+
+example (Inhab : Type) (A B C D : Inhab) (Sane Doctor : Inhab → Prop)
+  (h1 : Sane A ↔ (Sane B ↔ Sane C))
+  (h2 : Sane B ↔ (Sane A ↔ Sane D))
+  (h3 : Sane C ↔ ¬ (Doctor C ∧ Doctor D))
+  (h4 : A ≠ B ∧ A ≠ C ∧ A ≠ D ∧ B ≠ C ∧ B ≠ D ∧ C ≠ D) :
+  (∃ x : Inhab, Sane x ∧ ¬ Doctor x) ∨
+  (∃ x : Inhab, ∃ y : Inhab, x ≠ y ∧ (¬ Sane x) ∧ Doctor x ∧ (¬ Sane y) ∧ Doctor y) := by
+  -- hammerCore [] [*] {simpTarget := no_target} -- Fails
+  duper [*]
