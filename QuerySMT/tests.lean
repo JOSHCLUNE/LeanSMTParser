@@ -10,6 +10,8 @@ set_option auto.smt.dumpHints true
 set_option auto.smt.save false
 set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
+set_option trace.duper.ignoredUnusableFacts true
+
 -- This option lets us ignore warnings about trace options when Mathlib is imported
 -- set_option linter.setOption false
 
@@ -43,11 +45,16 @@ example (x y z : Nat) : x < y → y < z → x < z := by
 example (x y : Nat) (z : Int) : x < y → y < z → x < z := by
   querySMT
 
+-- `proveSMTLemma` is insufficient to prove the theory lemma returned by cvc5
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
-  querySMT -- `proveSMTLemma` is insufficient to prove the theory lemma returned by cvc5
+  sorry
+  -- querySMT fails
+  -- autoGetHints followed by duper [*] works (cvc5 outputs a slightly different hint)
 
 example {a b c d e f : Nat} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
-  querySMT
+  sorry
+  -- querySMT fails
+  -- autoGetHints followed by duper [*, Int.ofNat_le, Int.ofNat_lt, Int.ofNat_eq_coe, Int.zero_sub, Int.natCast_add, Int.natCast_mul] works
 
 example : True → ∀ x : Int, ∀ y : Int, ∀ z : Int, x ≤ y → y ≤ z → x ≤ z := by
   querySMT

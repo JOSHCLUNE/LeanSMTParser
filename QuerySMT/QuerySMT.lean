@@ -16,7 +16,7 @@ syntax (&"goalHypPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"negGoalLemmaName" " := " strLit) : QuerySMT.configOption
 
 syntax querySMTStar := "*"
-syntax (name := querySMT) "querySMT" (ppSpace Auto.hints)? (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
+syntax (name := querySMT) "querySMT" (ppSpace "[" (querySMTStar <|> term),* "]")? (ppSpace "{"QuerySMT.configOption,*,?"}")? : tactic
 
 def getLemmaPrefixFromConfigOptions (configOptionsStx : TSyntaxArray `QuerySMT.configOption) : Option String := Id.run do
   for configOptionStx in configOptionsStx do
@@ -107,10 +107,38 @@ def withAutoOptions {m : Type → Type} [MonadWithOptions m] {α : Type} (x : m 
       o.set `auto.smt.dumpHints.limitedRws true
     ) x
 
+def withDuperOptions [Monad m] [MonadError m] [MonadWithOptions m] (x : m α) : m α :=
+  withOptions
+    (fun o =>
+      let o := o.set `duper.ignoreUnusableFacts true
+      o.set `auto.mono.ignoreNonQuasiHigherOrder true
+    ) x
+
 macro_rules
 | `(tactic| querySMT) => `(tactic| querySMT [*] {}) -- Missing both facts and config options
 | `(tactic| querySMT [$facts,*]) => `(tactic| querySMT [$facts,*] {}) -- Mising just config options
 | `(tactic| querySMT {$configOptions,*}) => `(tactic| querySMT [*] {$configOptions,*}) -- Missing just facts
+
+/-- Given a Syntax.TSepArray of facts provided by the user (which may include `*` to indicate that `querySMT` should read in the
+    full local context) `removeQuerySMTStar` returns the Syntax.TSepArray with `*` removed and a boolean that indicates whether `*`
+    was included in the original input. -/
+def removeQuerySMTStar (facts : Syntax.TSepArray [`QuerySMT.querySMTStar, `term] ",") : Bool × Syntax.TSepArray `term "," := Id.run do
+  let factsArr := facts.elemsAndSeps -- factsArr contains both the elements of facts and separators, ordered like `#[e1, s1, e2, s2, e3]`
+  let mut newFactsArr : Array Syntax := #[]
+  let mut removedQuerySMTStar := false
+  let mut needToRemoveSeparator := false -- If `*` is removed, its comma also needs to be removed to preserve the elemsAndSeps ordering
+  for fact in factsArr do
+    match fact with
+    | `(querySMTStar| *) =>
+      removedQuerySMTStar := true
+      needToRemoveSeparator := true
+    | _ =>
+      if needToRemoveSeparator then needToRemoveSeparator := false -- Don't push current separator onto newFactsArr
+      else newFactsArr := newFactsArr.push fact
+  if removedQuerySMTStar && needToRemoveSeparator then -- This can occur if `*` was the last or only element of facts
+    return (removedQuerySMTStar, {elemsAndSeps := newFactsArr.pop}) -- Remove the last extra separator in newFactsArr, if it exists
+  else
+    return (removedQuerySMTStar, {elemsAndSeps := newFactsArr})
 
 /-- Given `userFacts`, `goalDecls`, `selectorInfos`, and `smtLemmas`, `getDuperCoreSMTLemmas` calls Duper and returns:
     - The SMT lemmas that appear in the final proof
@@ -156,6 +184,7 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
   -- Continue with local decls corresponding to `smtDeclInfos`
   withLocalDeclsD smtDeclInfos $ fun xs => do
     -- Build `formulas` to pass into `runDuperPortfolioMode`
+    trace[querySMT.debug] "{decl_name%} :: Collecting assumptions. coreUserFacts: {coreUserFacts}"
     let mut formulas := (← collectAssumptions coreUserFacts includeAllLctx goalDecls).toArray
     -- Add selector facts to `formulas`
     for (selName, selCtor, argIdx, selType) in selectorInfos do
@@ -257,32 +286,40 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
+-- **TODO** Experiment with ideal set of additionalFacts once we have a proper evaluation set up. Currently, I am
+-- trying to include only additionalFacts that evaluate to unit clauses
+def getAdditionalFacts : CoreM (Array Term) := do
+  return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
+    (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
+    (← `(term| $(mkIdent ``lt_iff_not_ge))),
+    -- (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
+    (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+    -- (← `(term| $(mkIdent ``Int.natAbs_eq))),
+    -- (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
+    (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
+    (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
+    -- (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
+    -- (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
+    (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
+    (← `(term| $(mkIdent ``Int.natAbs_mul))),
+    (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
+    (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one)))]
+
+def addAdditionalFacts (facts : Array Term) : CoreM (Array Term) := do
+  let mut facts := facts
+  for additionalFact in ← getAdditionalFacts do
+    facts := facts.push additionalFact
+  pure facts
+
+def isAdditionalFact : CoreM (Term → Bool) := do
+  let additionalFacts ← getAdditionalFacts
+  return additionalFacts.contains
+
 -- **TODO** Replace all `try-catch` statements with `tryCatchRuntimeEx` calls as in `Hammer.lean`
 @[tactic querySMT]
 def evalQuerySMT : Tactic
-| `(querySMT | querySMT%$stxRef $hints {$configOptions,*}) => withMainContext do
-  let ⟨facts, _, includeLCtx⟩ ← Auto.parseHints hints
-  -- **TODO** Determine if I need to include an additional fact indicating that `∀ x : Int, ∀ y : Int, x ≤ y ∨ y ≤ x`
-  -- **TODO** Experiment with ideal set of additionalFacts once we have a proper evaluation set up. Currently, I am
-  -- trying to include only additionalFacts that evaluate to unit clauses
-  let additionalFacts :=
-    #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
-      (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
-      (← `(term| $(mkIdent ``lt_iff_not_ge))),
-      -- (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
-      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
-      -- (← `(term| $(mkIdent ``Int.natAbs_eq))),
-      -- (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
-      (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
-      (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
-      -- (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
-      -- (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
-      (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
-      (← `(term| $(mkIdent ``Int.natAbs_mul))),
-      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
-      (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one)))]
-  let facts := facts ++ additionalFacts
-  trace[querySMT.debug] "facts: {(facts)}"
+| `(querySMT | querySMT%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
+  let (includeLCtx, facts) := removeQuerySMTStar facts
   let lctxBeforeIntros ← getLCtx
   let originalMainGoal ← getMainGoal
   let goalType ← originalMainGoal.getType
@@ -328,154 +365,168 @@ def evalQuerySMT : Tactic
     let goalsAfterSkolemization ← getGoals
     withMainContext do -- Use updated main context so that `collectAllLemmas` collects from the appropriate context
       let lctxAfterSkolemization ← getLCtx
-      let (lemmas, inhFacts) ←
+      -- **NOTE** We collect `formulas` using `Duper.collectAssumptions` rather than `Auto.collectAllLemmas` because `Auto.collectAllLemmas`
+      -- does not currently support a mode where unusable facts are ignored.
+      let formulas ← withDuperOptions $ collectAssumptions facts includeLCtx goalDecls
+      trace[querySMT.debug] "formulas: {(formulas.map (fun x => x.1))}"
+      withAutoOptions do
+        let lemmas ← formulasToAutoLemmas formulas
+        -- Calling `Auto.unfoldConstAndPreprocessLemma` is an essential step for the monomorphization procedure
+        let lemmas ←
+          tryCatchRuntimeEx
+            (lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[]))
+            throwTranslationError
+        let inhFacts ←
+          tryCatchRuntimeEx
+            Auto.Inhabitation.getInhFactsFromLCtx
+            throwTranslationError
+        let SMTHints ←
+          tryCatchRuntimeEx (do
+            trace[querySMT.debug] "Lemmas passed to runAutoGetHints {lemmas}"
+            trace[querySMT.debug] "inhFacts passed to runAutoGetHints {inhFacts}"
+            runAutoGetHints lemmas inhFacts
+            )
+            (fun e => do
+              let eStr ← e.toMessageData.toString
+              if eStr == "runAutoGetHints :: SMT solver was unable to find a proof" then throwSolverError e
+              else if "querySMTForHints :: Encountered error trying to parse SMT solver's hints.".isPrefixOf eStr then throwHintParsingError e
+              else throwTranslationError e -- If an error isn't explicitly identified as a solver or parsing error, interpret it as a translation error
+            )
+        let (unsatCoreDerivLeafStrings, selectorInfos, allSMTLemmas) := SMTHints
+        let (preprocessFacts, theoryLemmas, _instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
+        let smtLemmas := preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
+          (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
         try
-          collectAllLemmas hints #[] #[] -- **TODO** Add `ngoalsAndBinders`
-        catch e =>
-          throwTranslationError e
-      let SMTHints ←
-        try
-          withAutoOptions $ runAutoGetHints lemmas inhFacts
-        catch e =>
-          let eStr ← e.toMessageData.toString
-          if eStr == "runAutoGetHints :: SMT solver was unable to find a proof" then throwSolverError e
-          else if "querySMTForHints :: Encountered error trying to parse SMT solver's hints.".isPrefixOf eStr then throwHintParsingError e
-          else throwTranslationError e -- If an error isn't explicitly identified as a solver or parsing error, interpret it as a translation error
-      let (unsatCoreDerivLeafStrings, selectorInfos, allSMTLemmas) := SMTHints
-      let (preprocessFacts, theoryLemmas, _instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
-      let smtLemmas := preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
-        (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
-      try
-        for (selName, selCtor, argIdx, selType) in selectorInfos do
-          let selFactName := selName ++ "Fact"
-          let selector ← buildSelector selCtor argIdx
-          let selectorStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selector
-          let selectorFact ← buildSelectorFact selName selCtor selType argIdx
-          let selectorFactStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selectorFact
-          let existsIntroStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab (mkConst ``Exists.intro)
-          evalTactic $ -- Eval to add selector and its corresponding fact to lctx
-            ← `(tactic|
-                obtain ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
-                  apply $existsIntroStx:term $selectorStx:term
-                  intros
-                  rfl
-              )
-      catch e =>
-        throwSelectorConstructionError e
-      withMainContext do -- Use updated main context so that newly added selectors are accessible
-        trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
-        let duperConfigOptions :=
-          { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
-            preprocessing := none, includeExpensiveRules := none, selFunction := none }
-        let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
-          try
-            getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts goalDecls selectorInfos smtLemmas includeLCtx additionalFacts.contains duperConfigOptions
-          catch e =>
-            throwDuperError e
-        trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
-        let smtLemmasStx ← smtLemmas.mapM
-          (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)
-        let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
-        -- Build the `intros ...` tactic with appropriate names
-        let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
-        let mut numGoalHyps := 0
-        for fvarId in goalBinders do
-          -- Use `lctxAfterIntros` instead of `lctxAfterSkolemization` because `goalBinders` was generated prior to skolemization
-          let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
-          let ty := localDecl.type
-          if (← inferType ty).isProp then
-            introsNames := introsNames.push (.str .anonymous (goalHypPrefix ++ numGoalHyps.repr))
-            numGoalHyps := numGoalHyps + 1
-          else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
-            introsNames := introsNames.push $ Name.eraseMacroScopes localDecl.userName
-        let ids : TSyntaxArray [`ident, `Lean.Parser.Term.hole] := introsNames.map (fun n => mkIdent n)
-        if ids.size > 0 then
-          tacticsArr := tacticsArr.push $ ← `(tactic| intros $ids*)
-        -- Add `apply Classical.byContradiction` so that SMT lemmas can depend on the negated goal
-        let byContradictionConst : TSyntax `term ← PrettyPrinter.delab $ mkConst ``Classical.byContradiction
-        tacticsArr := tacticsArr.push $ ← `(tactic| apply $byContradictionConst)
-        -- Introduce the negated hypothesis (again, so that SMT lemmas can depend on the negated goal)
-        tacticsArr := tacticsArr.push $ ← `(tactic| intro $(mkIdent (.str .anonymous negGoalLemmaName)):term)
-        -- Add `skolemizeAll` tactic iff there is something to skolemize
-        if goalsBeforeSkolemization != goalsAfterSkolemization then
-          match getSkolemPrefixFromConfigOptions configOptions with
-          | some skolemPrefix => tacticsArr := tacticsArr.push $ ← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)})
-          | none => tacticsArr := tacticsArr.push $ ← `(tactic| skolemizeAll)
-        -- Create each of the necessary selectors
-        for (selName, selCtor, argIdx, selType) in selectorInfos do
-          if necessarySelectors.contains selName then
+          for (selName, selCtor, argIdx, selType) in selectorInfos do
             let selFactName := selName ++ "Fact"
             let selector ← buildSelector selCtor argIdx
             let selectorStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selector
             let selectorFact ← buildSelectorFact selName selCtor selType argIdx
             let selectorFactStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selectorFact
             let existsIntroStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab (mkConst ``Exists.intro)
-            tacticsArr := tacticsArr.push $
+            evalTactic $ -- Eval to add selector and its corresponding fact to lctx
               ← `(tactic|
                   obtain ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
                     apply $existsIntroStx:term $selectorStx:term
                     intros
                     rfl
                 )
-        -- Create each of the SMT lemmas
-        let mut smtLemmaCount := 0
-        let smtLemmaPrefix :=
-          match getLemmaPrefixFromConfigOptions configOptions with
-          | some lemmaPrefix => lemmaPrefix
-          | none => "smtLemma"
-        for smtLemmaStx in smtLemmasStx do
-          let lemmaName := smtLemmaPrefix ++ smtLemmaCount.repr
-          -- tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $smtLemmaStx := by proveSMTLemma)
-          tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $smtLemmaStx := by sorry)
-          smtLemmaCount := smtLemmaCount + 1
-        -- Build a Duper call using each coreLctxLemma, necessary selector fact, and necessary SMT lemma
-        let coreLctxLemmaIds ← coreLctxLemmas.mapM
-          (fun lemFVarId => withOptions ppOptionsSetting $ PrettyPrinter.delab (.fvar lemFVarId))
-        let mut smtLemmaIds : Array Term := #[]
-        for i in [:smtLemmaCount] do
-          let lemmaName := smtLemmaPrefix ++ i.repr
-          smtLemmaIds := smtLemmaIds.push $ mkIdent (.str .anonymous lemmaName)
-        let mut necessarySelectorFactIds : Array Term := #[]
-        for necessarySelectorName in necessarySelectors do
-          let necessarySelectorFactName := necessarySelectorName ++ "Fact"
-          necessarySelectorFactIds := necessarySelectorFactIds.push $ mkIdent (.str .anonymous necessarySelectorFactName)
-        let coreUserProvidedLemmas := coreUserProvidedLemmas.filter (fun x => !coreLctxLemmaIds.contains x)
-        tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ smtLemmaIds ++ necessarySelectorFactIds),*])
-        let tacticSeq ← `(tacticSeq| $tacticsArr*)
-        -- Check if any of the ids in `coreLctxLemmaIds` are shadowed. If they are, print a warning that the tactic suggestion may fail
-        for coreLctxLemmaFVarId in coreLctxLemmas do
-          match lctxAfterSkolemization.find? coreLctxLemmaFVarId with
-          | some decl1 =>
-            match lctxAfterSkolemization.findFromUserName? decl1.userName with
-            | some decl2 =>
-              if decl1.fvarId != decl2.fvarId then -- `decl1` is shadowed by `decl2`
-                let skolemPrefix :=
-                  match getSkolemPrefixFromConfigOptions configOptions with
-                  | some skolemPrefix => skolemPrefix
-                  | none => "sk"
-                let warning := makeShadowWarning decl1.userName smtLemmaCount smtLemmaPrefix numGoalHyps goalHypPrefix negGoalLemmaName skolemPrefix
-                logWarning warning
-              else if let ["", idxStr] := decl1.userName.toString.splitOn smtLemmaPrefix then -- Check whether `decl1.userName` will be shadowed by an SMT lemma
-                match idxStr.toNat? with
-                | some idx =>
-                  if idx < smtLemmaCount then -- `decl1.userName` will be shadowed by an SMT lemma
-                    let skolemPrefix :=
-                      match getSkolemPrefixFromConfigOptions configOptions with
-                      | some skolemPrefix => skolemPrefix
-                      | none => "sk"
-                    let warning := makeShadowWarning decl1.userName smtLemmaCount smtLemmaPrefix numGoalHyps goalHypPrefix negGoalLemmaName skolemPrefix
-                    logWarning warning
-                | none => continue
-            | none => throwError "querySMT :: Unable to find a necessary fact in the local context"
-          | none => throwError "querySMT :: Unable to find a necessary fact in the local context"
-        -- Create the suggestion
-        addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
-        let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
-        let newAbsurd ← getMainGoal -- Main goal changed by `skolemizeAll` and selector creation
-        try
-          newAbsurd.assign proof
         catch e =>
-          throwProofFitError e
+          throwSelectorConstructionError e
+        withMainContext do -- Use updated main context so that newly added selectors are accessible
+          trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
+          let duperConfigOptions :=
+            { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
+              preprocessing := none, includeExpensiveRules := none, selFunction := none }
+          let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
+            try
+              getDuperCoreSMTLemmas unsatCoreDerivLeafStrings (← addAdditionalFacts facts) goalDecls selectorInfos smtLemmas includeLCtx (← isAdditionalFact) duperConfigOptions
+            catch e =>
+              throwDuperError e
+          trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
+          let smtLemmasStx ← smtLemmas.mapM
+            (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)
+          let mut tacticsArr := #[] -- The array of tactics that will be suggested to the user
+          -- Build the `intros ...` tactic with appropriate names
+          let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
+          let mut numGoalHyps := 0
+          for fvarId in goalBinders do
+            -- Use `lctxAfterIntros` instead of `lctxAfterSkolemization` because `goalBinders` was generated prior to skolemization
+            let localDecl := lctxAfterIntros.fvarIdToDecl.find! fvarId
+            let ty := localDecl.type
+            if (← inferType ty).isProp then
+              introsNames := introsNames.push (.str .anonymous (goalHypPrefix ++ numGoalHyps.repr))
+              numGoalHyps := numGoalHyps + 1
+            else -- If fvarId corresponds to a non-sort type, then introduce it using the userName
+              introsNames := introsNames.push $ Name.eraseMacroScopes localDecl.userName
+          let ids : TSyntaxArray [`ident, `Lean.Parser.Term.hole] := introsNames.map (fun n => mkIdent n)
+          if ids.size > 0 then
+            tacticsArr := tacticsArr.push $ ← `(tactic| intros $ids*)
+          -- Add `apply Classical.byContradiction` so that SMT lemmas can depend on the negated goal
+          let byContradictionConst : TSyntax `term ← PrettyPrinter.delab $ mkConst ``Classical.byContradiction
+          tacticsArr := tacticsArr.push $ ← `(tactic| apply $byContradictionConst)
+          -- Introduce the negated hypothesis (again, so that SMT lemmas can depend on the negated goal)
+          tacticsArr := tacticsArr.push $ ← `(tactic| intro $(mkIdent (.str .anonymous negGoalLemmaName)):term)
+          -- Add `skolemizeAll` tactic iff there is something to skolemize
+          if goalsBeforeSkolemization != goalsAfterSkolemization then
+            match getSkolemPrefixFromConfigOptions configOptions with
+            | some skolemPrefix => tacticsArr := tacticsArr.push $ ← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)})
+            | none => tacticsArr := tacticsArr.push $ ← `(tactic| skolemizeAll)
+          -- Create each of the necessary selectors
+          for (selName, selCtor, argIdx, selType) in selectorInfos do
+            if necessarySelectors.contains selName then
+              let selFactName := selName ++ "Fact"
+              let selector ← buildSelector selCtor argIdx
+              let selectorStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selector
+              let selectorFact ← buildSelectorFact selName selCtor selType argIdx
+              let selectorFactStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selectorFact
+              let existsIntroStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab (mkConst ``Exists.intro)
+              tacticsArr := tacticsArr.push $
+                ← `(tactic|
+                    obtain ⟨$(mkIdent (.str .anonymous selName)), $(mkIdent (.str .anonymous selFactName))⟩ : $selectorFactStx:term := by
+                      apply $existsIntroStx:term $selectorStx:term
+                      intros
+                      rfl
+                  )
+          -- Create each of the SMT lemmas
+          let mut smtLemmaCount := 0
+          let smtLemmaPrefix :=
+            match getLemmaPrefixFromConfigOptions configOptions with
+            | some lemmaPrefix => lemmaPrefix
+            | none => "smtLemma"
+          for smtLemmaStx in smtLemmasStx do
+            let lemmaName := smtLemmaPrefix ++ smtLemmaCount.repr
+            -- tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $smtLemmaStx := by proveSMTLemma)
+            tacticsArr := tacticsArr.push $ ← `(tactic| have $(mkIdent (.str .anonymous lemmaName)) : $smtLemmaStx := by sorry)
+            smtLemmaCount := smtLemmaCount + 1
+          -- Build a Duper call using each coreLctxLemma, necessary selector fact, and necessary SMT lemma
+          let coreLctxLemmaIds ← coreLctxLemmas.mapM
+            (fun lemFVarId => withOptions ppOptionsSetting $ PrettyPrinter.delab (.fvar lemFVarId))
+          let mut smtLemmaIds : Array Term := #[]
+          for i in [:smtLemmaCount] do
+            let lemmaName := smtLemmaPrefix ++ i.repr
+            smtLemmaIds := smtLemmaIds.push $ mkIdent (.str .anonymous lemmaName)
+          let mut necessarySelectorFactIds : Array Term := #[]
+          for necessarySelectorName in necessarySelectors do
+            let necessarySelectorFactName := necessarySelectorName ++ "Fact"
+            necessarySelectorFactIds := necessarySelectorFactIds.push $ mkIdent (.str .anonymous necessarySelectorFactName)
+          let coreUserProvidedLemmas := coreUserProvidedLemmas.filter (fun x => !coreLctxLemmaIds.contains x)
+          tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ smtLemmaIds ++ necessarySelectorFactIds),*])
+          let tacticSeq ← `(tacticSeq| $tacticsArr*)
+          -- Check if any of the ids in `coreLctxLemmaIds` are shadowed. If they are, print a warning that the tactic suggestion may fail
+          for coreLctxLemmaFVarId in coreLctxLemmas do
+            match lctxAfterSkolemization.find? coreLctxLemmaFVarId with
+            | some decl1 =>
+              match lctxAfterSkolemization.findFromUserName? decl1.userName with
+              | some decl2 =>
+                if decl1.fvarId != decl2.fvarId then -- `decl1` is shadowed by `decl2`
+                  let skolemPrefix :=
+                    match getSkolemPrefixFromConfigOptions configOptions with
+                    | some skolemPrefix => skolemPrefix
+                    | none => "sk"
+                  let warning := makeShadowWarning decl1.userName smtLemmaCount smtLemmaPrefix numGoalHyps goalHypPrefix negGoalLemmaName skolemPrefix
+                  logWarning warning
+                else if let ["", idxStr] := decl1.userName.toString.splitOn smtLemmaPrefix then -- Check whether `decl1.userName` will be shadowed by an SMT lemma
+                  match idxStr.toNat? with
+                  | some idx =>
+                    if idx < smtLemmaCount then -- `decl1.userName` will be shadowed by an SMT lemma
+                      let skolemPrefix :=
+                        match getSkolemPrefixFromConfigOptions configOptions with
+                        | some skolemPrefix => skolemPrefix
+                        | none => "sk"
+                      let warning := makeShadowWarning decl1.userName smtLemmaCount smtLemmaPrefix numGoalHyps goalHypPrefix negGoalLemmaName skolemPrefix
+                      logWarning warning
+                  | none => continue
+              | none => throwError "querySMT :: Unable to find a necessary fact in the local context"
+            | none => throwError "querySMT :: Unable to find a necessary fact in the local context"
+          -- Create the suggestion
+          addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
+          let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
+          let newAbsurd ← getMainGoal -- Main goal changed by `skolemizeAll` and selector creation
+          try
+            newAbsurd.assign proof
+          catch e =>
+            throwProofFitError e
 | _ => throwUnsupportedSyntax
 
 end QuerySMT
