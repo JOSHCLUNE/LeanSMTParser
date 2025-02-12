@@ -166,7 +166,7 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
   for (selUserName, _, _, _) in selectorInfos do
     match lctx.findFromUserName? (.str .anonymous selUserName) with
     | some decl => selectorFVars := selectorFVars.push (.fvar decl.fvarId)
-    | none => throwError "evalAutoGetHints :: Error in trying to access selector definition for {selUserName}"
+    | none => throwError "{decl_name%} :: Error in trying to access selector definition for {selUserName}"
   let smtLemmas := smtLemmas.map (fun lem => lem.instantiateRev selectorFVars)
   /- Preprocess `smtLemmas` to zetaReduce let expressions
      We don't need to preprocess `lemmas` because `Auto.collectAllLemmas` already zetaReduces -/
@@ -304,6 +304,10 @@ def getAdditionalFacts : CoreM (Array Term) := do
     (← `(term| $(mkIdent ``Int.natAbs_mul))),
     (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
     (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one)))]
+    -- (← `(term| $(mkIdent ``Int.mul_assoc))), (← `(term| $(mkIdent ``Int.mul_comm))),
+    -- (← `(term| $(mkIdent ``Int.add_assoc))), (← `(term| $(mkIdent ``Int.add_comm))),
+    -- (← `(term| $(mkIdent ``Nat.mul_assoc))), (← `(term| $(mkIdent ``Nat.mul_comm))),
+    -- (← `(term| $(mkIdent ``Nat.add_assoc))), (← `(term| $(mkIdent ``Nat.add_comm)))
 
 def addAdditionalFacts (facts : Array Term) : CoreM (Array Term) := do
   let mut facts := facts
@@ -315,7 +319,6 @@ def isAdditionalFact : CoreM (Term → Bool) := do
   let additionalFacts ← getAdditionalFacts
   return additionalFacts.contains
 
--- **TODO** Replace all `try-catch` statements with `tryCatchRuntimeEx` calls as in `Hammer.lean`
 @[tactic querySMT]
 def evalQuerySMT : Tactic
 | `(querySMT | querySMT%$stxRef [$facts,*] {$configOptions,*}) => withMainContext do
@@ -356,12 +359,11 @@ def evalQuerySMT : Tactic
     let lctxAfterIntros ← getLCtx
     let goalDecls := getGoalDecls lctxBeforeIntros lctxAfterIntros
     let goalsBeforeSkolemization ← getGoals
-    try
-      match getSkolemPrefixFromConfigOptions configOptions with
-      | some skolemPrefix => evalTactic (← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)}))
-      | none => evalTactic (← `(tactic| skolemizeAll))
-    catch e =>
-      throwSkolemizationError e
+    tryCatchRuntimeEx
+      (match getSkolemPrefixFromConfigOptions configOptions with
+      | some skolemPrefix => do evalTactic (← `(tactic| skolemizeAll {prefix := $(Syntax.mkStrLit skolemPrefix)}))
+      | none => do evalTactic (← `(tactic| skolemizeAll)))
+      throwSkolemizationError
     let goalsAfterSkolemization ← getGoals
     withMainContext do -- Use updated main context so that `collectAllLemmas` collects from the appropriate context
       let lctxAfterSkolemization ← getLCtx
@@ -396,8 +398,8 @@ def evalQuerySMT : Tactic
         let (preprocessFacts, theoryLemmas, _instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
         let smtLemmas := preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
           (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
-        try
-          for (selName, selCtor, argIdx, selType) in selectorInfos do
+        tryCatchRuntimeEx
+          (for (selName, selCtor, argIdx, selType) in selectorInfos do
             let selFactName := selName ++ "Fact"
             let selector ← buildSelector selCtor argIdx
             let selectorStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selector
@@ -411,18 +413,17 @@ def evalQuerySMT : Tactic
                     intros
                     rfl
                 )
-        catch e =>
-          throwSelectorConstructionError e
+          )
+          throwSelectorConstructionError
         withMainContext do -- Use updated main context so that newly added selectors are accessible
           trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
           let duperConfigOptions :=
             { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
               preprocessing := none, includeExpensiveRules := none, selFunction := none }
           let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
-            try
-              getDuperCoreSMTLemmas unsatCoreDerivLeafStrings (← addAdditionalFacts facts) goalDecls selectorInfos smtLemmas includeLCtx (← isAdditionalFact) duperConfigOptions
-            catch e =>
-              throwDuperError e
+            tryCatchRuntimeEx
+              (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings (← addAdditionalFacts facts) goalDecls selectorInfos smtLemmas includeLCtx (← isAdditionalFact) duperConfigOptions)
+              throwDuperError
           trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
           let smtLemmasStx ← smtLemmas.mapM
             (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)
@@ -523,10 +524,9 @@ def evalQuerySMT : Tactic
           addTryThisTacticSeqSuggestion stxRef tacticSeq (← getRef)
           let proof ← mkAppM ``sorryAx #[Expr.const ``False [], Expr.const ``false []]
           let newAbsurd ← getMainGoal -- Main goal changed by `skolemizeAll` and selector creation
-          try
-            newAbsurd.assign proof
-          catch e =>
-            throwProofFitError e
+          tryCatchRuntimeEx
+            (newAbsurd.assign proof)
+            throwProofFitError
 | _ => throwUnsupportedSyntax
 
 end QuerySMT
