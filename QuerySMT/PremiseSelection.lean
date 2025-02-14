@@ -1,13 +1,18 @@
 import Lean
 
-namespace PremiseSelection
-
-open Lean Meta
-
 register_option hammer.premiseSelection.printTimeInformation : Bool := {
   defValue := false
   descr := "Whether to print the total time taken by premise retrieval"
 }
+
+register_option hammer.premiseSelection.apiUrl : String := {
+  defValue := "http://52.206.70.13/retrieve"
+  descr := "The URL of the premise retrieval API"
+}
+
+namespace PremiseSelection
+
+open Lean Meta
 
 def getPrintTimeInformation (opts : Options) : Bool :=
   hammer.premiseSelection.printTimeInformation.get opts
@@ -15,11 +20,6 @@ def getPrintTimeInformation (opts : Options) : Bool :=
 def getPrintTimeInformationM : CoreM Bool := do
   let opts ← getOptions
   return getPrintTimeInformation opts
-
-register_option hammer.premiseSelection.apiUrl : String := {
-  defValue := "http://52.206.70.13/retrieve"
-  descr := "The URL of the premise retrieval API"
-}
 
 def getPremiseSelectionApiUrl (opts : Options) : String :=
   hammer.premiseSelection.apiUrl.get opts
