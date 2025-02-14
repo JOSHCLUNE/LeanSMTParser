@@ -149,6 +149,7 @@ def removeQuerySMTStar (facts : Syntax.TSepArray [`QuerySMT.querySMTStar, `term]
 def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts : Syntax.TSepArray `term ",") (goalDecls : Array LocalDecl)
   (selectorInfos : Array (String × Expr × Nat × Expr)) (smtLemmas : List Expr) (includeAllLctx : Bool) (alwaysInclude : Term → Bool)
   (duperConfigOptions : Duper.ConfigurationOptions) : TacticM (Array Expr × Array String × Array FVarId × Array Term × Expr) := do
+  Core.checkSystem "querySMT :: getDuperCoreSMTLemmas"
   let lctx ← getLCtx
   -- Filter `userFacts` to only include facts that appear in the SMT solver's unsat core (and facts that `alwaysInclude` says to include)
   let userFacts : Array Term := userFacts
@@ -201,7 +202,7 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
     let prf ←
       try
         trace[querySMT.debug] "getDuperCoreSMTLemmas :: Calling runDuperPortfolioMode with formulas: {formulas}"
-        runDuperPortfolioMode formulas.toList none duperConfigOptions none
+        (do Core.checkSystem "querySMT :: runDuperPortfolioMode"; runDuperPortfolioMode formulas.toList none duperConfigOptions none)
       catch e =>
         throwError m!"getDuperCoreSMTLemmas :: Unable to use hints from external solver to reconstruct proof. " ++
                    m!"Duper threw the following error:\n\n{e.toMessageData}"
@@ -303,7 +304,8 @@ def getAdditionalFacts : CoreM (Array Term) := do
     (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
     (← `(term| $(mkIdent ``Int.natAbs_mul))),
     (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
-    (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one)))]
+    (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one))),
+    (← `(term| $(mkIdent ``Int.ofNat_zero))), (← `(term| $(mkIdent ``Int.ofNat_one)))]
     -- (← `(term| $(mkIdent ``Int.mul_assoc))), (← `(term| $(mkIdent ``Int.mul_comm))),
     -- (← `(term| $(mkIdent ``Int.add_assoc))), (← `(term| $(mkIdent ``Int.add_comm))),
     -- (← `(term| $(mkIdent ``Nat.mul_assoc))), (← `(term| $(mkIdent ``Nat.mul_comm))),
@@ -376,17 +378,17 @@ def evalQuerySMT : Tactic
         -- Calling `Auto.unfoldConstAndPreprocessLemma` is an essential step for the monomorphization procedure
         let lemmas ←
           tryCatchRuntimeEx
-            (lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[]))
+            (do Core.checkSystem "querySMT :: Auto.unfoldConstAndPreprocessLemma"; lemmas.mapM (m:=MetaM) (Auto.unfoldConstAndPreprocessLemma #[]))
             throwTranslationError
         let inhFacts ←
           tryCatchRuntimeEx
-            Auto.Inhabitation.getInhFactsFromLCtx
+            (do Core.checkSystem "querySMT :: Auto.Inhabitation.getInhFactsFromLCtx"; Auto.Inhabitation.getInhFactsFromLCtx)
             throwTranslationError
         let SMTHints ←
           tryCatchRuntimeEx (do
             trace[querySMT.debug] "Lemmas passed to runAutoGetHints {lemmas}"
             trace[querySMT.debug] "inhFacts passed to runAutoGetHints {inhFacts}"
-            runAutoGetHints lemmas inhFacts
+            (do Core.checkSystem "querySMT :: runAutoGetHints"; runAutoGetHints lemmas inhFacts)
             )
             (fun e => do
               let eStr ← e.toMessageData.toString
@@ -400,6 +402,7 @@ def evalQuerySMT : Tactic
           (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
         tryCatchRuntimeEx
           (for (selName, selCtor, argIdx, selType) in selectorInfos do
+            Core.checkSystem "querySMT :: buildSelectors"
             let selFactName := selName ++ "Fact"
             let selector ← buildSelector selCtor argIdx
             let selectorStx ← withOptions ppOptionsSetting $ PrettyPrinter.delab selector
