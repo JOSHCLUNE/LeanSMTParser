@@ -219,6 +219,7 @@ example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (
 -- Duper is able to solve this problem (with full preprocessing) but `hammerCore` fails when
 -- given exactly the information it requires. To thicken the plot, `hammerCore` can solve
 -- both directions of the bi-implication, but not the bi-implication itself.
+-- I think this is because the translation to TPTP isn't aware of bi-implications.
 
 variable [Group G]
 
@@ -247,3 +248,17 @@ example (Inhab : Type) (A B C D : Inhab) (Sane Doctor : Inhab → Prop)
   (∃ x : Inhab, ∃ y : Inhab, x ≠ y ∧ (¬ Sane x) ∧ Doctor x ∧ (¬ Sane y) ∧ Doctor y) := by
   -- hammerCore [] [*] {simpTarget := no_target} -- Fails
   duper [*]
+
+-------------------------------------------------------------------------------------------
+-- Skolemization fails when there are unused forall binders. The issue is that
+-- "evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))"
+-- (currently on line 292 of `SkolemizeAll.lean`) fails when the simp call is unable to automatically
+-- infer all the arguments to skolemDefTerm
+
+example (h : ∀ n m : Nat, ∃ x : Nat, x = n + m) (x : Nat) : x ≥ 0 := by
+  skolemizeAll -- `sk0` is successfully inserted into `h`
+  sorry
+
+example (h : ∀ n m : Nat, ∃ x : Nat, x = m) (x : Nat) : x ≥ 0 := by
+  skolemizeAll -- `sk0` is not successfully inserted into `h`
+  sorry

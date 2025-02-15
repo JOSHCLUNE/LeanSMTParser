@@ -141,7 +141,7 @@ partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (f
         return (generatedSkolems', e')
     else -- `t` must be interpreted as a forall statement
       withLocalDeclD n ty fun tyFVar => do
-        let e' ← mkAppM' e #[tyFVar]
+        let e' ← mkAppOptM' e #[some tyFVar]
         let (generatedSkolems, e') ← skolemizeOne e' generatedSkolems (forallFVars.push tyFVar)
         let e' ← mkLambdaFVars #[tyFVar] e'
         return (generatedSkolems, e')
@@ -239,12 +239,12 @@ def skolemizeAndReplace (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : Stri
             let equalityName := skolemPrefix ++ curSkolemIdx.repr ++ "_def"
             let equalityConstructor : Array Expr → TacticM Expr := fun _ =>
               forallBoundedTelescope skolemFunctionTy maxTelescopeBinders $ fun xs _ => do
-                let skolemFVarWithArgs ← mkAppM' skolemFVars[skolemFVarsIdx]! xs
+                let skolemFVarWithArgs ← mkAppOptM' skolemFVars[skolemFVarsIdx]! (xs.map some)
                 let skolemFVarWithArgs :=
                   match (← betaReduce skolemFVarWithArgs).etaExpanded? with
                   | some skolemFVarWithArgs => skolemFVarWithArgs
                   | none => skolemFVarWithArgs
-                let instantiatedSkolemFunction ← mkAppM' skolemFunction xs
+                let instantiatedSkolemFunction ← mkAppOptM' skolemFunction (xs.map some)
                 let instantiatedSkolemFunction :=
                   match (← betaReduce instantiatedSkolemFunction).etaExpanded? with
                   | some instantiatedSkolemFunction => instantiatedSkolemFunction
@@ -263,7 +263,7 @@ def skolemizeAndReplace (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : Stri
       let maxTelescopeBinders ← forallTelescope skolemFunctionTy $ fun xs _ => do pure (xs.size - numForallBindersInOriginalType)
       let skolemRfl ←
         forallBoundedTelescope skolemFunctionTy maxTelescopeBinders $ fun xs _ => do
-          let instantiatedSkolemFunction ← mkAppM' skolemFunction xs
+          let instantiatedSkolemFunction ← mkAppOptM' skolemFunction (xs.map some)
           let instantiatedSkolemFunction :=
             match (← betaReduce instantiatedSkolemFunction).etaExpanded? with
             | some instantiatedSkolemFunction => instantiatedSkolemFunction
