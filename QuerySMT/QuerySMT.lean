@@ -6,7 +6,19 @@ open Lean Meta Auto Elab Tactic Parser Tactic Duper
 
 initialize Lean.registerTraceClass `querySMT.debug
 
+register_option querySMT.ignoreHints : Bool := {
+  defValue := false
+  descr := "Ignores all hints provided from cvc5 and just uses the unsat core"
+}
+
 namespace QuerySMT
+
+def getIgnoreHints (opts : Options) : Bool :=
+  querySMT.ignoreHints.get opts
+
+def getIgnoreHintsM : CoreM Bool := do
+  let opts ← getOptions
+  return getIgnoreHints opts
 
 declare_syntax_cat QuerySMT.configOption (behavior := symbol)
 
@@ -398,8 +410,12 @@ def evalQuerySMT : Tactic
             )
         let (unsatCoreDerivLeafStrings, selectorInfos, allSMTLemmas) := SMTHints
         let (preprocessFacts, theoryLemmas, _instantiations, computationLemmas, polynomialLemmas, rewriteFacts) := allSMTLemmas
-        let smtLemmas := preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
-          (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
+        let smtLemmas :=
+          if ← getIgnoreHintsM then
+            []
+          else
+            preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
+              (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
         tryCatchRuntimeEx
           (for (selName, selCtor, argIdx, selType) in selectorInfos do
             Core.checkSystem "querySMT :: buildSelectors"
