@@ -1,7 +1,7 @@
 import QuerySMT
-import QuerySMT.PremiseSelection -- **TODO** Improve file structure
+import PremiseSelection
 
-open Lean Meta Parser Elab Tactic Auto Duper QuerySMT PremiseSelection Syntax
+open Lean Meta Parser Elab Tactic Auto Duper QuerySMT Syntax
 
 initialize Lean.registerTraceClass `hammer.debug
 
@@ -349,13 +349,23 @@ def evalHammerCore : Tactic
   runHammerCore stxRef simpLemmas facts includeLCtx configOptions
 | _ => throwUnsupportedSyntax
 
+open PremiseSelection in
 @[tactic hammer]
 def evalHammer : Tactic
 | `(tactic| hammer%$stxRef {$configOptions,*}) => withMainContext do
   let goal ← getMainGoal
   let configOptions ← parseConfigOptions configOptions
-  let premises ← retrievePremises goal configOptions.premiseRetrievalK
+  let premiseSelectionConfig : PremiseSelection.Config := {
+    maxSuggestions := configOptions.premiseRetrievalK,
+    caller := `hammer
+  }
+  -- Get the registered premise selector for premise selection.
+  -- If none registered, then use the cloud premise selector by default.
+  let selector := premiseSelectorExt.getState (← getEnv)
+  let selector := selector.getD Cloud.premiseSelector
+  let premises ← selector goal premiseSelectionConfig
   trace[hammer.debug] "Premises retrieved: {premises}"
+
   let premises := premises.map (fun p => p.name)
   let premises ← premises.mapM (fun p => return (← `(term| $(mkIdent p))))
   runHammerCore stxRef ∅ premises true configOptions
