@@ -364,7 +364,6 @@ def evalHammer : Tactic
   let selector := premiseSelectorExt.getState (← getEnv)
   let selector := selector.getD Cloud.premiseSelector
   let premises ← selector goal premiseSelectionConfig
-  trace[hammer.debug] "Premises retrieved: {premises}"
 
   let premises := premises.map (fun p => p.name)
   let premises ← premises.mapM (fun p => return (← `(term| $(mkIdent p))))
