@@ -11,6 +11,8 @@ register_option querySMT.ignoreHints : Bool := {
   descr := "Ignores all hints provided from cvc5 and just uses the unsat core"
 }
 
+declare_syntax_cat QuerySMT.configOption (behavior := symbol)
+
 namespace QuerySMT
 
 def getIgnoreHints (opts : Options) : Bool :=
@@ -19,8 +21,6 @@ def getIgnoreHints (opts : Options) : Bool :=
 def getIgnoreHintsM : CoreM Bool := do
   let opts ← getOptions
   return getIgnoreHints opts
-
-declare_syntax_cat QuerySMT.configOption (behavior := symbol)
 
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
@@ -200,7 +200,7 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
     trace[querySMT.debug] "{decl_name%} :: Collecting assumptions. coreUserFacts: {coreUserFacts}"
     let mut formulas := (← collectAssumptions coreUserFacts includeAllLctx goalDecls).toArray
     -- Add selector facts to `formulas`
-    for (selName, selCtor, argIdx, selType) in selectorInfos do
+    for (selName, _selCtor, _argIdx, _selType) in selectorInfos do
       let selFactName := selName ++ "Fact"
       let some selFactDecl := lctx.findFromUserName? (.str .anonymous selFactName)
         | throwError "getDuperCoreSMTLemmas :: Unable to find selector fact {selFactName}"

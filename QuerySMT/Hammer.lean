@@ -5,15 +5,18 @@ open Lean Meta Parser Elab Tactic Auto Duper QuerySMT Syntax
 
 initialize Lean.registerTraceClass `hammer.debug
 
-namespace Hammer
-
 -- An option to specify the external prover that `hammer` uses
 declare_syntax_cat Hammer.solverOption (behavior := symbol)
+-- An option to specify the set of facts targeted by the preprocessing `simp` call
+declare_syntax_cat Hammer.simpTarget (behavior := symbol)
+-- An option to specify other configuration options for `hammer`
+declare_syntax_cat Hammer.configOption (behavior := symbol)
+
+namespace Hammer
+
 syntax "zipperposition" : Hammer.solverOption
 syntax "cvc5" : Hammer.solverOption
 
--- An option to specify the set of facts targeted by the preprocessing `simp` call
-declare_syntax_cat Hammer.simpTarget (behavior := symbol)
 syntax "target" : Hammer.simpTarget -- Corresponds to `simp`
 syntax "all" : Hammer.simpTarget -- Corresponds to `simp_all`
 syntax "no_target" : Hammer.simpTarget -- Corresponds to skipping the preprocessing `simp` call
@@ -44,7 +47,6 @@ def elabSimpTarget [Monad m] [MonadError m] (stx : TSyntax `Hammer.simpTarget) :
     | `(simpTarget| no_target) => return no_target
     | _ => Elab.throwUnsupportedSyntax
 
-declare_syntax_cat Hammer.configOption (behavior := symbol)
 syntax (&"solver" " := " Hammer.solverOption) : Hammer.configOption
 syntax (&"goalHypPrefix" " := " strLit) : Hammer.configOption
 syntax (&"negGoalLemmaName" " := " strLit) : Hammer.configOption
@@ -154,7 +156,7 @@ def withDuperOptions [Monad m] [MonadError m] [MonadWithOptions m] (x : m α) : 
     ) x
 
 @[rebind Auto.Native.solverFunc]
-def duperNativeSolverFunc (lemmas : Array Lemma) (inhLemmas : Array Lemma) : MetaM Expr := do
+def duperNativeSolverFunc (lemmas : Array Lemma) (_inhLemmas : Array Lemma) : MetaM Expr := do
   let formulas ← autoLemmasToFormulas lemmas
   let formulas := formulas.map (fun f => (f.1, f.2.1, f.2.2.1, f.2.2.2, none))
   trace[hammer.debug] "Formulas passed to Duper after filtering: {formulas.map (fun x => x.1)}"

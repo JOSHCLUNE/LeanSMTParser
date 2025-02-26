@@ -1,4 +1,4 @@
 import QuerySMT
 import Hammer
 
-def main : List String → IO UInt32 := fun args => do return 0
+def main : List String → IO UInt32 := fun _ => do return 0
