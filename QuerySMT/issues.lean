@@ -216,15 +216,16 @@ example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (
   sorry -- duper [*, contains3, contains4] -- Fails
 
 -------------------------------------------------------------------------------------------
--- Skolemization fails when there are unused forall binders. The issue is that
--- "evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))"
--- (currently on line 292 of `SkolemizeAll.lean`) fails when the simp call is unable to automatically
--- infer all the arguments to skolemDefTerm
+-- Skolemization still fails when there are unused forall binders and uninhabited types
 
-example (h : ∀ n m : Nat, ∃ x : Nat, x = n + m) (x : Nat) : x ≥ 0 := by
-  skolemizeAll -- `sk0` is successfully inserted into `h`
-  sorry
+-- This example fails because we don't have `[Inhabited t1] [Inhabited t2]`
+example (t1 t2 : Type) (h : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m) : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m := by
+  skolemizeAll
 
-example (h : ∀ n m : Nat, ∃ x : Nat, x = m) (x : Nat) : x ≥ 0 := by
-  skolemizeAll -- `sk0` is not successfully inserted into `h`
-  sorry
+-- This example works because we have `[Inhabited t1] [Inhabited t2]`
+example (t1 t2 : Type) [Inhabited t1] [Inhabited t2] (h : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m) : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m := by
+  skolemizeAll
+  intro n m
+  specialize h n m
+  apply Exists.intro (sk0 m)
+  exact h
