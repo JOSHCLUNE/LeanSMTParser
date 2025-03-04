@@ -216,49 +216,16 @@ example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (
   sorry -- duper [*, contains3, contains4] -- Fails
 
 -------------------------------------------------------------------------------------------
--- Duper is able to solve this problem (with full preprocessing) but `hammerCore` fails when
--- given exactly the information it requires. To thicken the plot, `hammerCore` can solve
--- both directions of the bi-implication, but not the bi-implication itself.
--- I think this is because the translation to TPTP isn't aware of bi-implications.
+-- Skolemization still fails when there are unused forall binders and uninhabited types
 
-variable [Group G]
+-- This example fails because we don't have `[Inhabited t1] [Inhabited t2]`
+example (t1 t2 : Type) (h : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m) : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m := by
+  skolemizeAll
 
-theorem unique_identity : ∀ (e : G), (∀ a, e * a = a) ↔ (e = 1) := by
-  -- hammerCore [] [*, mul_assoc, one_mul, inv_mul_cancel] {simpTarget := no_target} -- This fails
-  duper [mul_assoc, one_mul, inv_mul_cancel] -- Duper succeeds
-
--- The forward direction is fine
-theorem unique_identity_forward : ∀ (e : G), (∀ a, e * a = a) → (e = 1) := by
-  hammerCore [] [*, mul_assoc, one_mul, inv_mul_cancel] {simpTarget := no_target}
-
--- The backward direction is also fine
-theorem unique_identity_backward : ∀ (e : G), (e = 1) → (∀ a, e * a = a) := by
-  hammerCore [] [*, mul_assoc, one_mul, inv_mul_cancel] {simpTarget := no_target}
-
--------------------------------------------------------------------------------------------
--- This is a relatively easy puzzle that Duper can solve but `hammerCore` fails to produce a
--- translation that Zipperposition can solve.
-
-example (Inhab : Type) (A B C D : Inhab) (Sane Doctor : Inhab → Prop)
-  (h1 : Sane A ↔ (Sane B ↔ Sane C))
-  (h2 : Sane B ↔ (Sane A ↔ Sane D))
-  (h3 : Sane C ↔ ¬ (Doctor C ∧ Doctor D))
-  (h4 : A ≠ B ∧ A ≠ C ∧ A ≠ D ∧ B ≠ C ∧ B ≠ D ∧ C ≠ D) :
-  (∃ x : Inhab, Sane x ∧ ¬ Doctor x) ∨
-  (∃ x : Inhab, ∃ y : Inhab, x ≠ y ∧ (¬ Sane x) ∧ Doctor x ∧ (¬ Sane y) ∧ Doctor y) := by
-  -- hammerCore [] [*] {simpTarget := no_target} -- Fails
-  duper [*]
-
--------------------------------------------------------------------------------------------
--- Skolemization fails when there are unused forall binders. The issue is that
--- "evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))"
--- (currently on line 292 of `SkolemizeAll.lean`) fails when the simp call is unable to automatically
--- infer all the arguments to skolemDefTerm
-
-example (h : ∀ n m : Nat, ∃ x : Nat, x = n + m) (x : Nat) : x ≥ 0 := by
-  skolemizeAll -- `sk0` is successfully inserted into `h`
-  sorry
-
-example (h : ∀ n m : Nat, ∃ x : Nat, x = m) (x : Nat) : x ≥ 0 := by
-  skolemizeAll -- `sk0` is not successfully inserted into `h`
-  sorry
+-- This example works because we have `[Inhabited t1] [Inhabited t2]`
+example (t1 t2 : Type) [Inhabited t1] [Inhabited t2] (h : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m) : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m := by
+  skolemizeAll
+  intro n m
+  specialize h n m
+  apply Exists.intro (sk0 m)
+  exact h

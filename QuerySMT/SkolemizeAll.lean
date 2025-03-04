@@ -56,7 +56,8 @@ theorem not_ne_iff_forward {α : Sort u_1} {a : α} {b : α} : ¬a ≠ b → a =
     - `e` a term whose type has the form `∃ x : α, p x` where:
       - `α : Prop`
       - `p : α → Prop`
-    - `forallFVars` which contains all universally quantified free variables in `e`, `α`, and `p`
+    - `forallFVars` which contains all universally quantified free variables in `e`, `α`, and `p` (each
+      paired with a boolean indicating whether it actually appears in `e`, `α`, or `p`)
 
     `skolemizeExists` returns:
     - A skolem function `f : ∀ [forallFVars] → α`
@@ -68,7 +69,7 @@ theorem not_ne_iff_forward {α : Sort u_1} {a : α} {b : α} : ¬a ≠ b → a =
 
      **TODO** Modify how `skolemizeExists` interacts with `skolemizeOne` and `skolemizeAndReplace` so that
      if both approaches fail, a new goal for the user to fill can be created. -/
-def skolemizeExists (e : Expr) (forallFVars : Array Expr) (α p : Expr) : TacticM (Expr × Expr) := do
+def skolemizeExists (e : Expr) (forallFVars : Array (Expr × Bool)) (α p : Expr) : TacticM (Expr × Expr) := do
   try -- Try to use the `Skolem.some` approach first since it's compatible with Or
     -- `defaultValue : α`
     let defaultValue ← mkAppOptM ``Inhabited.default #[some α, none]
@@ -77,7 +78,7 @@ def skolemizeExists (e : Expr) (forallFVars : Array Expr) (α p : Expr) : Tactic
     -- `originalSkolemWitnessSpec : p originalSkolemWitness`
     let originalSkolemWitnessSpec ← mkAppM ``Skolem.spec #[defaultValue, e]
     -- `generalizedSkolemWitness : ∀ [forallFVars] → α`
-    let generalizedSkolemWitness ← mkLambdaFVars forallFVars originalSkolemWitness
+    let generalizedSkolemWitness ← mkLambdaFVars (forallFVars.filterMap (fun (fvar, b) => if b then some fvar else none)) originalSkolemWitness
     return (generalizedSkolemWitness, originalSkolemWitnessSpec)
   catch _ => -- If `Skolem.some` fails, use `Classical.choose` directly even though it's not compatible with `Or`
      -- `originalSkolemWitness : α`
@@ -85,7 +86,7 @@ def skolemizeExists (e : Expr) (forallFVars : Array Expr) (α p : Expr) : Tactic
     -- `originalSkolemWitnessSpec : p originalSkolemWitness`
     let originalSkolemWitnessSpec ← mkAppM ``Classical.choose_spec #[e]
     -- `generalizedSkolemWitness : ∀ [forallFVars] → α`
-    let generalizedSkolemWitness ← mkLambdaFVars forallFVars originalSkolemWitness
+    let generalizedSkolemWitness ← mkLambdaFVars (forallFVars.map Prod.fst) originalSkolemWitness
     return (generalizedSkolemWitness, originalSkolemWitnessSpec)
 
 /-- `pushNegation` takes `e : ¬t` and checks if `t` has a logical symbol at its head that the negation can be
@@ -113,7 +114,8 @@ def pushNegation (e : Expr) : TacticM (Option Expr) := do
       has already been called to ensure that when `Not` is encountered, no binders will appear in its argument
     - `generatedSkolems` which is a running array of generated skolem functions along with the types of the original
       existential binders that were skolemized
-    - `forallFVars` which is a running array of universally quantified free variables that may appear in `e`.
+    - `forallFVars` which is a running array of universally quantified free variables that may appear in `e`. Each
+      free variable is paired with a boolean indicating whether it actually appears in `e`.
 
     `skolemizeOne` checks whether `t` can be skolemized, and if it can, produces and returns:
     - The array of skolem functions generated throughout the process of skolemizing `t` (i.e. `generatedSkolems`)
@@ -122,7 +124,7 @@ def pushNegation (e : Expr) : TacticM (Option Expr) := do
     So for example, if `skolemizeOneHelper` is given `e : ∀ x : α, ∃ y : β, p x y`, the output should be:
     - [(`f : α → β`, `β`)]
     - `e'` which has the type `∀ x : α, p x (f x)`  -/
-partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (forallFVars : Array Expr)
+partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (forallFVars : Array (Expr × Bool))
   : TacticM (Array (Expr × Expr) × Expr) := do
   let t ← instantiateMVars $ ← inferType e
   trace[skolemizeAll.debug] "Calling skolemizeOne on {e} of type {t}"
@@ -142,7 +144,9 @@ partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (f
     else -- `t` must be interpreted as a forall statement
       withLocalDeclD n ty fun tyFVar => do
         let e' ← mkAppOptM' e #[some tyFVar]
-        let (generatedSkolems, e') ← skolemizeOne e' generatedSkolems (forallFVars.push tyFVar)
+        let e'_type ← inferType e'
+        let tyFVar_appears_in_e'_type := e'_type.containsFVar tyFVar.fvarId!
+        let (generatedSkolems, e') ← skolemizeOne e' generatedSkolems (forallFVars.push (tyFVar, tyFVar_appears_in_e'_type))
         let e' ← mkLambdaFVars #[tyFVar] e'
         return (generatedSkolems, e')
   | Expr.app (Expr.app (Expr.const ``And _) _) _ =>
