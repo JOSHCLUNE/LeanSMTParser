@@ -21,6 +21,8 @@ def getPrefixFromConfigOptions (configOptionsStx : TSyntaxArray `SkolemizeAll.co
     | _ => continue
   return none
 
+noncomputable def choice {α : Sort u} [h : Nonempty α] : α := Classical.choice h
+
 noncomputable def Skolem.some (p : α → Prop) (x : α) : α :=
   let _ : Decidable (∃ a, p a) := Classical.propDecidable _
   if hp : ∃ a, p a then Classical.choose hp else x
@@ -72,7 +74,11 @@ theorem not_ne_iff_forward {α : Sort u_1} {a : α} {b : α} : ¬a ≠ b → a =
 def skolemizeExists (e : Expr) (forallFVars : Array (Expr × Bool)) (α p : Expr) : TacticM (Expr × Expr) := do
   try -- Try to use the `Skolem.some` approach first since it's compatible with Or
     -- `defaultValue : α`
-    let defaultValue ← mkAppOptM ``Inhabited.default #[some α, none]
+    let defaultValue ←
+      try
+        mkAppOptM ``Inhabited.default #[some α, none]
+      catch _ =>
+        mkAppOptM ``Skolemize.choice #[some α, none]
     -- `originalSkolemWitness : α`
     let originalSkolemWitness ← mkAppOptM ``Skolem.some #[some α, some p, some defaultValue]
     -- `originalSkolemWitnessSpec : p originalSkolemWitness`
