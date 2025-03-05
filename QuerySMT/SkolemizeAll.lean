@@ -54,6 +54,27 @@ theorem of_prop_not_eq {p : Prop} {q : Prop} : ¬(p = q) → (¬p) = q := by
   . simp only [eq_false hp, eq_iff_iff, false_iff, not_not, not_false_eq_true, true_iff, imp_self]
 theorem not_ne_iff_forward {α : Sort u_1} {a : α} {b : α} : ¬a ≠ b → a = b := Iff.mp not_ne_iff
 
+/-- Attempts to find a witness for `α`. Succeeds if `α` is `Inhabited`, `Nonempty`, appears in the types of `forallFVars`,
+    or if any witness of type `α` is already in the local context. -/
+def tryToFindWitness (α : Expr) (forallFVars : Array (Expr × Bool)) : TacticM (Option Expr) := do
+  try
+    return some (← mkAppOptM ``Inhabited.default #[some α, none])
+  catch _ =>
+    try
+      return some (← mkAppOptM ``Skolemize.choice #[some α, none])
+    catch _ =>
+      let forallTypes ← forallFVars.mapM (fun (fvar, _) => inferType fvar)
+      match forallTypes.find? (fun ty => ty == α) with
+      | some fvar => return some fvar
+      | none =>
+        let lctx ← getLCtx
+        let localDecls := lctx.decls.toArray.filterMap id
+        for localDecl in localDecls do
+          if localDecl.type == α then
+            return some $ Expr.fvar localDecl.fvarId
+        logWarning "Failed to find a witness for {α}"
+        return none
+
 /-- `skolemizeExists` takes as input:
     - `e` a term whose type has the form `∃ x : α, p x` where:
       - `α : Prop`
@@ -74,11 +95,8 @@ theorem not_ne_iff_forward {α : Sort u_1} {a : α} {b : α} : ¬a ≠ b → a =
 def skolemizeExists (e : Expr) (forallFVars : Array (Expr × Bool)) (α p : Expr) : TacticM (Expr × Expr) := do
   try -- Try to use the `Skolem.some` approach first since it's compatible with Or
     -- `defaultValue : α`
-    let defaultValue ←
-      try
-        mkAppOptM ``Inhabited.default #[some α, none]
-      catch _ =>
-        mkAppOptM ``Skolemize.choice #[some α, none]
+    let some defaultValue ← tryToFindWitness α forallFVars
+      | throwError "Failed to find a witness for {α}"
     -- `originalSkolemWitness : α`
     let originalSkolemWitness ← mkAppOptM ``Skolem.some #[some α, some p, some defaultValue]
     -- `originalSkolemWitnessSpec : p originalSkolemWitness`
