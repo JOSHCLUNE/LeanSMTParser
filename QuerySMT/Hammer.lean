@@ -157,10 +157,12 @@ def withDuperOptions [Monad m] [MonadError m] [MonadWithOptions m] (x : m α) : 
 
 @[rebind Auto.Native.solverFunc]
 def duperNativeSolverFunc (lemmas : Array Lemma) (_inhLemmas : Array Lemma) : MetaM Expr := do
-  let formulas ← autoLemmasToFormulas lemmas
+  let (formulas, extraFormulas) ← autoLemmasToFormulas lemmas
   let formulas := formulas.map (fun f => (f.1, f.2.1, f.2.2.1, f.2.2.2, none))
+  let extraFormulas := extraFormulas.map (fun f => (f.1, f.2.1, f.2.2.1, f.2.2.2, none))
   trace[hammer.debug] "Formulas passed to Duper after filtering: {formulas.map (fun x => x.1)}"
-  Duper.runDuperPortfolioMode formulas .none
+  trace[hammer.debug] "Extra formulas passed to Duper after filtering: {extraFormulas.map (fun x => x.1)}"
+  Duper.runDuperPortfolioMode formulas extraFormulas .none
     { portfolioMode := true,
       portfolioInstance := none,
       inhabitationReasoning := none,
@@ -275,7 +277,7 @@ def runHammerCore (stxRef : Syntax) (simpLemmas : Syntax.TSepArray [`Lean.Parser
     -- does not currently support a mode where unusable facts are ignored.
     let formulas ← withDuperOptions $ collectAssumptions facts includeLCtx goalDecls
     withSolverOptions configOptions do
-      let lemmas ← formulasToAutoLemmas formulas
+      let lemmas ← formulasToAutoLemmas formulas (includeInSetOfSupport := true)
       -- Calling `Auto.unfoldConstAndPreprocessLemma` is an essential step for the monomorphization procedure
       let lemmas ←
         tryCatchRuntimeEx

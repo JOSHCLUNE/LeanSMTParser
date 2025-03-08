@@ -93,7 +93,7 @@ example : ∀ x : Int, ∀ y : Int, x * y ≠ 0 → x ≠ 0 ∧ y ≠ 0 := by
   querySMT
 
 example : ∀ x : Nat, ∀ y : Nat, x * y ≠ 0 → x ≠ 0 ∧ y ≠ 0 := by
-  sorry -- `querySMT` thinks it succeeds but Duper's proof has error (see issues.lean)
+  querySMT
 
 -- **TODO** Continue natifying from here
 
@@ -114,23 +114,23 @@ example (Even Odd : Int → Prop)
   (h2 : ∀ x : Int, ∀ y : Int, Odd (x) → Even (y) → Odd (x + y))
   (h3 : ∀ x : Int, Even (x) ↔ ¬ Odd (x))
   (h4 : Odd (1)) : Even (10) := by
-  querySMT
+  querySMT -- **NOTE** This exhibits a bug where necessary smtLemmas are dropped in the tactic suggestion
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1) : Pos 2 := by
-  querySMT
+  querySMT -- **NOTE** This exhibits a bug where necessary smtLemmas are dropped in the tactic suggestion
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg x → Neg (x - 1))
   (h5 : Neg (-1)) : Neg (-2) := by
-  querySMT
+  querySMT -- **NOTE** This exhibits a bug where necessary smtLemmas are dropped in the tactic suggestion
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg x → Neg (x - 1))
   (h5 : Neg (-1))
   (h7 : ∀ x : Int, Pos x ↔ Neg (- x)) : Neg (-2) := by
-  querySMT -- `proveSMTLemma` is not able to prove `smtLemma0`
+  querySMT
 
 example : ∀ x : Int, ∃ y : Int, x ≤ y := by
   querySMT

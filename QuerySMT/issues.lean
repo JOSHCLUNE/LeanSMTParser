@@ -107,7 +107,7 @@ example (Pos Neg Zero : Int → Prop)
 -- `querySMT` thinks it succeeded but there is an error in the proof that Duper produces
 
 example : ∀ x : Nat, ∀ y : Nat, x * y ≠ 0 → x ≠ 0 ∧ y ≠ 0 := by
-  -- Below is the output of `querySMT`
+  -- Below is the output of `querySMT` (before adding set of support control)
   intros x y h0
   apply @Classical.byContradiction
   intro negGoal
@@ -216,14 +216,18 @@ example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (
   sorry -- duper [*, contains3, contains4] -- Fails
 
 -------------------------------------------------------------------------------------------
--- Skolemization still fails when there are unused forall binders and uninhabited types
+-- Skolemization still fails when there are unused forall binders and potentially uninhabited types
 
--- This example fails because we don't have `[Inhabited t1] [Inhabited t2]`
-example (t1 t2 : Type) (h : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m) : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m := by
+-- This example fails because we don't have `[Inhabited t3]`
+example (t1 t2 t3 : Type) (f : t2 → t3 → Prop) (h : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x) : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x := by
   skolemizeAll
+  intro n m
+  specialize h n m
+  apply Exists.intro (sk0 m)
+  exact h
 
--- This example works because we have `[Inhabited t1] [Inhabited t2]`
-example (t1 t2 : Type) [Inhabited t1] [Inhabited t2] (h : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m) : ∀ n : t1, ∀ m : t2, ∃ x : t2, x = m := by
+-- This example workds because we have `[Inhabited t3]`
+example (t1 t2 t3 : Type) [Inhabited t3] (f : t2 → t3 → Prop) (h : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x) : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x := by
   skolemizeAll
   intro n m
   specialize h n m

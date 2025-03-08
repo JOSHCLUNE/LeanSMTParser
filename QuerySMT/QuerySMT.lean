@@ -205,16 +205,18 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
       let some selFactDecl := lctx.findFromUserName? (.str .anonymous selFactName)
         | throwError "getDuperCoreSMTLemmas :: Unable to find selector fact {selFactName}"
       formulas := formulas.push (selFactDecl.type, ← mkAppM ``eq_true #[.fvar selFactDecl.fvarId], #[], false, none)
-    -- Add `smtLemmas` to `formulas`
+    -- Add `smtLemmas` to `extraFormulas` (to indicate that these should not be added to the set of support)
+    let mut extraFormulas := #[]
     let mut lemCounter := 0
     for lem in smtLemmas do
-      formulas := formulas.push (lem, ← mkAppM ``eq_true #[xs[lemCounter]!], #[], false, none)
+      extraFormulas := extraFormulas.push (lem, ← mkAppM ``eq_true #[xs[lemCounter]!], #[], false, none)
       lemCounter := lemCounter + 1
     -- Try to reconstruct the proof using `runDuperPortfolioMode`
     let prf ←
       try
+        Core.checkSystem "querySMT :: runDuperPortfolioMode"
         trace[querySMT.debug] "getDuperCoreSMTLemmas :: Calling runDuperPortfolioMode with formulas: {formulas}"
-        (do Core.checkSystem "querySMT :: runDuperPortfolioMode"; runDuperPortfolioMode formulas.toList none duperConfigOptions none)
+        runDuperPortfolioMode formulas.toList extraFormulas.toList none duperConfigOptions none
       catch e =>
         throwError m!"getDuperCoreSMTLemmas :: Unable to use hints from external solver to reconstruct proof. " ++
                    m!"Duper threw the following error:\n\n{e.toMessageData}"
@@ -386,7 +388,7 @@ def evalQuerySMT : Tactic
       let formulas ← withDuperOptions $ collectAssumptions facts includeLCtx goalDecls
       trace[querySMT.debug] "formulas: {(formulas.map (fun x => x.1))}"
       withAutoOptions do
-        let lemmas ← formulasToAutoLemmas formulas
+        let lemmas ← formulasToAutoLemmas formulas (includeInSetOfSupport := true)
         -- Calling `Auto.unfoldConstAndPreprocessLemma` is an essential step for the monomorphization procedure
         let lemmas ←
           tryCatchRuntimeEx
@@ -398,10 +400,10 @@ def evalQuerySMT : Tactic
             throwTranslationError
         let SMTHints ←
           tryCatchRuntimeEx (do
+            Core.checkSystem "querySMT :: runAutoGetHints"
             trace[querySMT.debug] "Lemmas passed to runAutoGetHints {lemmas}"
             trace[querySMT.debug] "inhFacts passed to runAutoGetHints {inhFacts}"
-            (do Core.checkSystem "querySMT :: runAutoGetHints"; runAutoGetHints lemmas inhFacts)
-            )
+            runAutoGetHints lemmas inhFacts)
             (fun e => do
               let eStr ← e.toMessageData.toString
               if eStr == "runAutoGetHints :: SMT solver was unable to find a proof" then throwSolverError e
@@ -511,7 +513,7 @@ def evalQuerySMT : Tactic
             let necessarySelectorFactName := necessarySelectorName ++ "Fact"
             necessarySelectorFactIds := necessarySelectorFactIds.push $ mkIdent (.str .anonymous necessarySelectorFactName)
           let coreUserProvidedLemmas := coreUserProvidedLemmas.filter (fun x => !coreLctxLemmaIds.contains x)
-          tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ smtLemmaIds ++ necessarySelectorFactIds),*])
+          tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ necessarySelectorFactIds),*] [$(smtLemmaIds),*])
           let tacticSeq ← `(tacticSeq| $tacticsArr*)
           -- Check if any of the ids in `coreLctxLemmaIds` are shadowed. If they are, print a warning that the tactic suggestion may fail
           for coreLctxLemmaFVarId in coreLctxLemmas do

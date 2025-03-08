@@ -63,9 +63,11 @@ def tryToFindWitness (α : Expr) (forallFVars : Array (Expr × Bool)) : TacticM 
     try
       return some (← mkAppOptM ``Skolemize.choice #[some α, none])
     catch _ =>
-      let forallTypes ← forallFVars.mapM (fun (fvar, _) => inferType fvar)
-      match forallTypes.find? (fun ty => ty == α) with
-      | some fvar => return some fvar
+      let forallFvarsWithTypes ← forallFVars.mapM (fun (fvar, _) => do pure (fvar, ← inferType fvar))
+      trace[skolemizeAll.debug] "tryToFindWitness :: forallFvarsWithTypes: {forallFvarsWithTypes}, α: {α}"
+      trace[skolemizeAll.debug] "forallTypes.find? (fun ty => ty == α) : {forallFvarsWithTypes.find? (fun (_, ty) => ty == α)}"
+      match forallFvarsWithTypes.find? (fun (_, ty) => ty == α) with
+      | some (fvar, _) => return some fvar
       | none =>
         let lctx ← getLCtx
         let localDecls := lctx.decls.toArray.filterMap id
