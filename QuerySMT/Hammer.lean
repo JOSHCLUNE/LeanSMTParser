@@ -308,8 +308,8 @@ def runHammerCore (stxRef : Syntax) (simpLemmas : Syntax.TSepArray [`Lean.Parser
           { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none, includeExpensiveRules := none,
             preprocessing := some PreprocessingOption.FullPreprocessing, selFunction := none }
         let (_, _, coreLctxLemmas, coreUserInputFacts, duperProof) ←
-          tryCatchRuntimeEx
-            (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts goalDecls #[] [] includeLCtx (fun _ => false) duperConfigOptions)
+          tryCatchRuntimeEx -- **TODO** Experiment with excluding lemmas suggested by premise selection from the set of support
+            (getDuperCoreSMTLemmas unsatCoreDerivLeafStrings facts (#[] : Array Term) goalDecls #[] [] includeLCtx (fun _ => false) duperConfigOptions)
             throwDuperError
         -- Build the `intros ...` tactic with appropriate names
         let mut introsNames := #[] -- Can't just use `introNCoreNames` because `introNCoreNames` uses `_ as a placeholder
