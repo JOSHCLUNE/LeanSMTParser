@@ -199,14 +199,14 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
     -- Build `formulas` to pass into `runDuperPortfolioMode`
     trace[querySMT.debug] "{decl_name%} :: Collecting assumptions. coreUserFacts: {coreUserFacts}"
     let mut formulas := (← collectAssumptions coreUserFacts includeAllLctx goalDecls).toArray
-    -- Add selector facts to `formulas`
+    let mut extraFormulas := #[]
+    -- Add selector facts to `extraFormulas` (to indicate that these should not be added to the set of support)
     for (selName, _selCtor, _argIdx, _selType) in selectorInfos do
       let selFactName := selName ++ "Fact"
       let some selFactDecl := lctx.findFromUserName? (.str .anonymous selFactName)
         | throwError "getDuperCoreSMTLemmas :: Unable to find selector fact {selFactName}"
-      formulas := formulas.push (selFactDecl.type, ← mkAppM ``eq_true #[.fvar selFactDecl.fvarId], #[], false, none)
+      extraFormulas := extraFormulas.push (selFactDecl.type, ← mkAppM ``eq_true #[.fvar selFactDecl.fvarId], #[], false, none)
     -- Add `smtLemmas` to `extraFormulas` (to indicate that these should not be added to the set of support)
-    let mut extraFormulas := #[]
     let mut lemCounter := 0
     for lem in smtLemmas do
       extraFormulas := extraFormulas.push (lem, ← mkAppM ``eq_true #[xs[lemCounter]!], #[], false, none)
@@ -418,6 +418,7 @@ def evalQuerySMT : Tactic
           else
             preprocessFacts ++ theoryLemmas ++ computationLemmas ++ polynomialLemmas ++ -- instantiations are intentionally ignored
               (rewriteFacts.foldl (fun acc rwFacts => acc ++ rwFacts) [])
+        let selectorInfos := if ← getIgnoreHintsM then #[] else selectorInfos
         tryCatchRuntimeEx
           (for (selName, selCtor, argIdx, selType) in selectorInfos do
             Core.checkSystem "querySMT :: buildSelectors"
