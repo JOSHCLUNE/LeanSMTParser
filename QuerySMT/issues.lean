@@ -129,6 +129,16 @@ example (x z : Nat) (hxz : x + z < 2) (f : Nat → Nat)
   duper [hxz, hz, negGoal, Int.ofNat_nonneg, lt_iff_not_ge, Int.ofNat_le, Int.ofNat_lt, Int.natCast_add, smtLemma0,
     smtLemma1, smtLemma2]
 
+example {x y z a : Nat} (h : x + y + z = 0) : z + (a + x) + y = a := by
+  apply @Classical.byContradiction
+  intro negGoal
+  have smtLemma0 :
+    ¬Int.ofNat z + (Int.ofNat a + Int.ofNat x) + Int.ofNat y = Int.ofNat a ∧
+        Int.ofNat x + Int.ofNat y + Int.ofNat z = Int.ofNat 0 →
+      False :=
+    by sorry
+  duper [h, negGoal, Int.natCast_add] [smtLemma0]
+
 -------------------------------------------------------------------------------------------
 -- Both `autoGetHints` and `querySMT` appear to hang on this example (it's not clear why yet)
 
@@ -226,10 +236,45 @@ example (t1 t2 t3 : Type) (f : t2 → t3 → Prop) (h : ∀ n : t1, ∀ m : t2, 
   apply Exists.intro (sk0 m)
   exact h
 
--- This example workds because we have `[Inhabited t3]`
-example (t1 t2 t3 : Type) [Inhabited t3] (f : t2 → t3 → Prop) (h : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x) : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x := by
+-- This example works because we have `[Nonempty t3]`
+example (t1 t2 t3 : Type) [Nonempty t3] (f : t2 → t3 → Prop) (h : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x) : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x := by
   skolemizeAll
   intro n m
   specialize h n m
   apply Exists.intro (sk0 m)
   exact h
+
+-------------------------------------------------------------------------------------------
+-- These examples relating to unused forall binders used to not work at all.
+-- They now work with `[Nonempty myNat]`, but fail without it
+
+example (myNat : Type) [Nonempty myNat] (f : myNat → myNat) (P : myNat → Prop)
+  (h : ∀ x y : myNat, ∃ z : myNat, y = f z) : ∀ x y : myNat, ∃ z : myNat, y = f z := by
+  skolemizeAll -- This now works
+  duper [*]
+
+example (myNat : Type) [Nonempty myNat] (f : myNat → myNat) (P : myNat → Prop)
+  (h : ∀ x y : myNat, P x → ∃ z : myNat, y = f z) : ∀ x y : myNat, P x → ∃ z : myNat, y = f z := by
+  skolemizeAll -- This now works
+  duper [*]
+
+example (myNat : Type) [Nonempty myNat] (f : myNat → myNat) (P : myNat → Prop)
+  (h : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z) : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z := by
+  skolemizeAll -- This now works
+  duper [*]
+
+set_option trace.skolemizeAll.debug true in
+example (myNat : Type) (f : myNat → myNat) (P : myNat → Prop)
+  (h : ∀ x y : myNat, ∃ z : myNat, y = f z) : ∀ x y : myNat, ∃ z : myNat, y = f z := by
+  skolemizeAll -- This fails without `[Nonempty myNat]`
+  duper [*]
+
+example (myNat : Type) (f : myNat → myNat) (P : myNat → Prop)
+  (h : ∀ x y : myNat, P x → ∃ z : myNat, y = f z) : ∀ x y : myNat, P x → ∃ z : myNat, y = f z := by
+  skolemizeAll -- This fails without `[Nonempty myNat]`
+  duper [*]
+
+example (myNat : Type) (f : myNat → myNat) (P : myNat → Prop)
+  (h : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z) : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z := by
+  skolemizeAll -- This fails without `[Nonempty myNat]`
+  duper [*]
