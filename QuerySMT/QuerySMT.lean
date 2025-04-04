@@ -17,12 +17,12 @@ register_option querySMT.includeSMTHintsInSetOfSupport : Bool := {
 }
 
 register_option querySMT.includeCastingFactsInSetOfSupport : Bool := {
-  defValue := true
+  defValue := false
   descr := "Includes all casting facts in the set of support"
 }
 
 register_option querySMT.includeSuppliedFactsInSetOfSupport : Bool := {
-  defValue := true
+  defValue := false
   descr := "Includes user supplied facts in the set of support"
 }
 

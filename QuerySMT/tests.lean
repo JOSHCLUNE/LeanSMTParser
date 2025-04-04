@@ -116,6 +116,9 @@ example (Even Odd : Int → Prop)
   (h4 : Odd (1)) : Even (10) := by
   querySMT -- **NOTE** This exhibits a bug where necessary smtLemmas are dropped in the tactic suggestion
 
+-- **NOTE** This example times out if we don't include casting facts and hints in the set of support
+set_option querySMT.includeCastingFactsInSetOfSupport true in
+set_option querySMT.includeSuppliedFactsInSetOfSupport true in
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1) : Pos 2 := by
