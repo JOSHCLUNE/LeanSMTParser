@@ -356,29 +356,28 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     return generalWarning ++ negGoalWarning
   return generalWarning
 
--- **TODO** Experiment with ideal set of additionalFacts once we have a proper evaluation set up. Currently, I am
--- trying to include only additionalFacts that evaluate to unit clauses
+-- **TODO** Experiment with ideal set of additionalFacts once we have a proper evaluation set up
 def getAdditionalFacts : CoreM (Array Term) := do
   return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
     (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
     (← `(term| $(mkIdent ``lt_iff_not_ge))),
-    -- (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
+    (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
     (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
-    -- (← `(term| $(mkIdent ``Int.natAbs_eq))),
-    -- (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
+    (← `(term| $(mkIdent ``Int.natAbs_eq))),
+    (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
     (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
     (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
-    -- (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
-    -- (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
+    (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
+    (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
     (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
     (← `(term| $(mkIdent ``Int.natAbs_mul))),
     (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
     (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one))),
-    (← `(term| $(mkIdent ``Int.ofNat_zero))), (← `(term| $(mkIdent ``Int.ofNat_one)))]
-    -- (← `(term| $(mkIdent ``Int.mul_assoc))), (← `(term| $(mkIdent ``Int.mul_comm))),
-    -- (← `(term| $(mkIdent ``Int.add_assoc))), (← `(term| $(mkIdent ``Int.add_comm))),
-    -- (← `(term| $(mkIdent ``Nat.mul_assoc))), (← `(term| $(mkIdent ``Nat.mul_comm))),
-    -- (← `(term| $(mkIdent ``Nat.add_assoc))), (← `(term| $(mkIdent ``Nat.add_comm)))
+    (← `(term| $(mkIdent ``Int.ofNat_zero))), (← `(term| $(mkIdent ``Int.ofNat_one))),
+    (← `(term| $(mkIdent ``Int.mul_assoc))), (← `(term| $(mkIdent ``Int.mul_comm))),
+    (← `(term| $(mkIdent ``Int.add_assoc))), (← `(term| $(mkIdent ``Int.add_comm))),
+    (← `(term| $(mkIdent ``Nat.mul_assoc))), (← `(term| $(mkIdent ``Nat.mul_comm))),
+    (← `(term| $(mkIdent ``Nat.add_assoc))), (← `(term| $(mkIdent ``Nat.add_comm)))]
 
 def addAdditionalFacts (facts : Array Term) : CoreM (Array Term) := do
   let mut facts := facts

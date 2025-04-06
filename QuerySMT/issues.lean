@@ -104,42 +104,6 @@ example (Pos Neg Zero : Int → Prop)
   sorry -- querySMT -- `querySMT` succeeds but the tactic suggestion fails
 
 -------------------------------------------------------------------------------------------
--- `querySMT` thinks it succeeded but there is an error in the proof that Duper produces
-
-example : ∀ x : Nat, ∀ y : Nat, x * y ≠ 0 → x ≠ 0 ∧ y ≠ 0 := by
-  -- Below is the output of `querySMT` (before adding set of support control)
-  intros x y h0
-  apply @Classical.byContradiction
-  intro negGoal
-  have smtLemma0 : Int.ofNat y = Int.ofNat 0 → Int.ofNat x * Int.ofNat y = Int.ofNat 0 := by sorry
-  have smtLemma1 : Int.ofNat x = Int.ofNat 0 → Int.ofNat x * Int.ofNat y = Int.ofNat 0 := by sorry
-  duper [h0, negGoal, Int.natCast_mul, smtLemma0, smtLemma1]
-
-example (x z : Nat) (hxz : x + z < 2) (f : Nat → Nat)
-  (hz : 0 < z) : ∀ y : Nat, f (x + y) = f y := by
-  intros y
-  apply @Classical.byContradiction
-  intro negGoal
-  have smtLemma0 : Int.ofNat 0 < Int.ofNat z → Int.ofNat z ≥ Int.ofNat 1 := by sorry
-  have smtLemma1 : Int.ofNat x = Int.ofNat 0 → Int.ofNat (f (x + y)) = Int.ofNat (f y) := by sorry
-  have smtLemma2 :
-    ((Int.ofNat x + Int.ofNat z ≥ Int.ofNat 2 ∨ ¬Int.ofNat z ≥ Int.ofNat 1) ∨ ¬Int.ofNat x ≥ Int.ofNat 0) ∨
-      Int.ofNat x = Int.ofNat 0 :=
-    by sorry
-  duper [hxz, hz, negGoal, Int.ofNat_nonneg, lt_iff_not_ge, Int.ofNat_le, Int.ofNat_lt, Int.natCast_add, smtLemma0,
-    smtLemma1, smtLemma2]
-
-example {x y z a : Nat} (h : x + y + z = 0) : z + (a + x) + y = a := by
-  apply @Classical.byContradiction
-  intro negGoal
-  have smtLemma0 :
-    ¬Int.ofNat z + (Int.ofNat a + Int.ofNat x) + Int.ofNat y = Int.ofNat a ∧
-        Int.ofNat x + Int.ofNat y + Int.ofNat z = Int.ofNat 0 →
-      False :=
-    by sorry
-  duper [h, negGoal, Int.natCast_add] [smtLemma0]
-
--------------------------------------------------------------------------------------------
 -- Both `autoGetHints` and `querySMT` appear to hang on this example (it's not clear why yet)
 
 set_option auto.smt.save true in
