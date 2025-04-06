@@ -47,14 +47,10 @@ example (x y : Nat) (z : Int) : x < y → y < z → x < z := by
 
 -- `proveSMTLemma` is insufficient to prove the theory lemma returned by cvc5
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
-  sorry
-  -- querySMT fails
-  -- autoGetHints followed by duper [*] works (cvc5 outputs a slightly different hint)
+  querySMT -- **NOTE** AC facts are needed to prove this goal
 
 example {a b c d e f : Nat} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
-  sorry
-  -- querySMT fails
-  -- autoGetHints followed by duper [*, Int.ofNat_le, Int.ofNat_lt, Int.ofNat_eq_coe, Int.zero_sub, Int.natCast_add, Int.natCast_mul] works
+  querySMT -- **NOTE** AC facts are needed to prove this goal
 
 example : True → ∀ x : Int, ∀ y : Int, ∀ z : Int, x ≤ y → y ≤ z → x ≤ z := by
   querySMT
@@ -268,6 +264,8 @@ inductive myProd (t1 t2 : Type _)
 
 open myProd
 
+-- **NOTE** AC facts need to be disabled for this example to work
+set_option querySMT.includeACFacts false in
 example (sum : myStructure → Int)
   (hSum : ∀ x : Int, ∀ y : Int, sum (mk x y) = x + y)
   (x : myStructure) : ∃ y : myStructure, sum y > sum x := by

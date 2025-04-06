@@ -12,7 +12,7 @@ register_option querySMT.ignoreHints : Bool := {
 }
 
 register_option querySMT.includeSMTHintsInSetOfSupport : Bool := {
-  defValue := true
+  defValue := false
   descr := "Includes all hints provided from cvc5 in the set of support"
 }
 
@@ -22,8 +22,18 @@ register_option querySMT.includeCastingFactsInSetOfSupport : Bool := {
 }
 
 register_option querySMT.includeSuppliedFactsInSetOfSupport : Bool := {
-  defValue := false
+  defValue := true
   descr := "Includes user supplied facts in the set of support"
+}
+
+register_option querySMT.includeNonUnitFacts : Bool := {
+  defValue := true
+  descr := "Includes non-unit facts in the set of additional facts"
+}
+
+register_option querySMT.includeACFacts : Bool := {
+  defValue := true
+  descr := "Includes +/* associativity and commutativity facts to the set of additional facts"
 }
 
 declare_syntax_cat QuerySMT.configOption (behavior := symbol)
@@ -42,6 +52,12 @@ def getIncludeCastingFactsInSetOfSupport (opts : Options) : Bool :=
 def getIncludeSuppliedFactsInSetOfSupport (opts : Options) : Bool :=
   querySMT.includeSuppliedFactsInSetOfSupport.get opts
 
+def getIncludeNonUnitFacts (opts : Options) : Bool :=
+  querySMT.includeNonUnitFacts.get opts
+
+def getIncludeACFacts (opts : Options) : Bool :=
+  querySMT.includeACFacts.get opts
+
 def getIgnoreHintsM : CoreM Bool := do
   let opts ← getOptions
   return getIgnoreHints opts
@@ -57,6 +73,14 @@ def getIncludeCastingFactsInSetOfSupportM : CoreM Bool := do
 def getIncludeSuppliedFactsInSetOfSupportM : CoreM Bool := do
   let opts ← getOptions
   return getIncludeSuppliedFactsInSetOfSupport opts
+
+def getIncludeNonUnitFactsM : CoreM Bool := do
+  let opts ← getOptions
+  return getIncludeNonUnitFacts opts
+
+def getIncludeACFactsM : CoreM Bool := do
+  let opts ← getOptions
+  return getIncludeACFacts opts
 
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
@@ -358,26 +382,58 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
 
 -- **TODO** Experiment with ideal set of additionalFacts once we have a proper evaluation set up
 def getAdditionalFacts : CoreM (Array Term) := do
-  return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
-    (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
-    (← `(term| $(mkIdent ``lt_iff_not_ge))),
-    (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
-    (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
-    (← `(term| $(mkIdent ``Int.natAbs_eq))),
-    (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
-    (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
-    (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
-    (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
-    (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
-    (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
-    (← `(term| $(mkIdent ``Int.natAbs_mul))),
-    (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
-    (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one))),
-    (← `(term| $(mkIdent ``Int.ofNat_zero))), (← `(term| $(mkIdent ``Int.ofNat_one))),
-    (← `(term| $(mkIdent ``Int.mul_assoc))), (← `(term| $(mkIdent ``Int.mul_comm))),
-    (← `(term| $(mkIdent ``Int.add_assoc))), (← `(term| $(mkIdent ``Int.add_comm))),
-    (← `(term| $(mkIdent ``Nat.mul_assoc))), (← `(term| $(mkIdent ``Nat.mul_comm))),
-    (← `(term| $(mkIdent ``Nat.add_assoc))), (← `(term| $(mkIdent ``Nat.add_comm)))]
+  if (← getIncludeNonUnitFactsM) && (← getIncludeACFactsM) then
+    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
+      (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
+      (← `(term| $(mkIdent ``lt_iff_not_ge))),
+      (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
+      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      (← `(term| $(mkIdent ``Int.natAbs_eq))),
+      (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
+      (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
+      (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
+      (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
+      (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
+      (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
+      (← `(term| $(mkIdent ``Int.natAbs_mul))),
+      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
+      (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one))),
+      (← `(term| $(mkIdent ``Int.ofNat_zero))), (← `(term| $(mkIdent ``Int.ofNat_one))),
+      (← `(term| $(mkIdent ``Int.mul_assoc))), (← `(term| $(mkIdent ``Int.mul_comm))),
+      (← `(term| $(mkIdent ``Int.add_assoc))), (← `(term| $(mkIdent ``Int.add_comm))),
+      (← `(term| $(mkIdent ``Nat.mul_assoc))), (← `(term| $(mkIdent ``Nat.mul_comm))),
+      (← `(term| $(mkIdent ``Nat.add_assoc))), (← `(term| $(mkIdent ``Nat.add_comm)))]
+  else if (← getIncludeNonUnitFactsM) && !(← getIncludeACFactsM) then
+    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
+      (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
+      (← `(term| $(mkIdent ``lt_iff_not_ge))),
+      (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
+      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      (← `(term| $(mkIdent ``Int.natAbs_eq))),
+      (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
+      (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
+      (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
+      (← `(term| $(mkIdent ``Int.natAbs_of_nonneg))), (← `(term| $(mkIdent ``Int.ofNat_natAbs_of_nonpos))),
+      (← `(term| $(mkIdent ``Int.nonpos_of_neg_nonneg))), (← `(term| $(mkIdent ``Int.nonneg_of_neg_nonpos))),
+      (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
+      (← `(term| $(mkIdent ``Int.natAbs_mul))),
+      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
+      (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one))),
+      (← `(term| $(mkIdent ``Int.ofNat_zero))), (← `(term| $(mkIdent ``Int.ofNat_one)))]
+  else if !(← getIncludeNonUnitFactsM) && (← getIncludeACFactsM) then
+    throwError "{decl_name%} :: `querySMT` requires the option `includeNonUnitFacts` to be set to `true` when `includeACFacts` is set to `true`"
+  else -- `includeNonUnitFacts` and `includeACFacts` are both false
+    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
+      (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
+      (← `(term| $(mkIdent ``lt_iff_not_ge))),
+      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
+      (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
+      (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),
+      (← `(term| $(mkIdent ``Int.natAbs_mul))),
+      (← `(term| $(mkIdent ``Int.natCast_one))), (← `(term| $(mkIdent ``Int.natCast_zero))),
+      (← `(term| $(mkIdent ``Int.natAbs_zero))), (← `(term| $(mkIdent ``Int.natAbs_one))),
+      (← `(term| $(mkIdent ``Int.ofNat_zero))), (← `(term| $(mkIdent ``Int.ofNat_one)))]
 
 def addAdditionalFacts (facts : Array Term) : CoreM (Array Term) := do
   let mut facts := facts
