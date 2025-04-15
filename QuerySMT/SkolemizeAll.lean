@@ -1,5 +1,5 @@
 import Lean
-import Mathlib.Tactic.PushNeg
+import Mathlib.Tactic.Push
 
 open Lean Meta Elab Tactic Parser Tactic Core Mathlib.Tactic
 

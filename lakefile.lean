@@ -1,11 +1,11 @@
 import Lake
 open Lake DSL
 
-require «mathlib» from git "https://github.com/leanprover-community/mathlib4" @ "v4.16.0"
+require «mathlib» from git "https://github.com/leanprover-community/mathlib4" @ "v4.18.0"
 
-require «Duper» from git "https://github.com/leanprover-community/duper.git" @ "4f71a99b24c1b6dc946f258ff94afec41f24ee2d"
+require «Duper» from git "https://github.com/leanprover-community/duper.git" @ "65737400c80dcff0c205e79717fd0389ee8132ae"
 
-require «premise-selection» from git "https://github.com/hanwenzhu/premise-selection" @ "v4.16.0"
+require «premise-selection» from git "https://github.com/hanwenzhu/premise-selection" @ "v4.18.0"
 
 package QuerySMT {
   precompileModules := true
