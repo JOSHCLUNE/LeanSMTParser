@@ -32,7 +32,7 @@ register_option querySMT.includeNonUnitFacts : Bool := {
 }
 
 register_option querySMT.includeACFacts : Bool := {
-  defValue := true
+  defValue := false
   descr := "Includes +/* associativity and commutativity facts to the set of additional facts"
 }
 

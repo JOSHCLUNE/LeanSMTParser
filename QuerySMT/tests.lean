@@ -46,9 +46,11 @@ example (x y : Nat) (z : Int) : x < y → y < z → x < z := by
   querySMT
 
 -- `proveSMTLemma` is insufficient to prove the theory lemma returned by cvc5
+set_option querySMT.includeACFacts true in
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
   querySMT -- **NOTE** AC facts are needed to prove this goal
 
+set_option querySMT.includeACFacts true in
 example {a b c d e f : Nat} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
   querySMT -- **NOTE** AC facts are needed to prove this goal
 
