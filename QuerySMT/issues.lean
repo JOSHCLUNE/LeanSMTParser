@@ -246,80 +246,25 @@ example (myNat : Type) (f : myNat → myNat) (P : myNat → Prop)
 -------------------------------------------------------------------------------------------
 -- `skolemizeAll` issue based on `List.forall_mem_zipIdx` (from Mathlib.Data.List.Enum.lean)
 
-/- Two issues:
-    1. `α` is not necessarily inhabited in `forall_mem_zipIdx`
-    2. The use of `l[i]` which relies on `getElem`
+/- Work has been done to improve `skolemizeAll`'s ability to get along with `getElem`, but
+   `skolemizeAll` still fails on `forall_mem_zipIdx` when `α` is not known to be Inhabited -/
 
-  This problem should be tractable for `skolemizeAll` if we can get `skolemizeAll`
-  to play nice with `getElem`
--/
-open List
-
+set_option trace.skolemizeAll.debug true in
+open List in
 theorem forall_mem_zipIdx {l : List α} {n : ℕ} {p : α × ℕ → Prop} :
     (∀ x ∈ l.zipIdx n, p x) ↔ ∀ (i : ℕ) (_ : i < length l), p (l[i], n + i) := by
   apply Classical.byContradiction
   intro negGoal
+  rw [not_iff] at negGoal
+  simp at negGoal
   skolemizeAll
   sorry
 
--- Added `Inhabited α` but that is insufficient
+-- Adding `Inhabited α` is now sufficient to make `skolemizeAll` succeed
+open List in
 theorem forall_mem_zipIdx2 [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop} :
     (∀ x : α × Nat, q x → p x) ↔ ∀ (i : ℕ) (_ : i < length l), p (l[i], n + i) := by
   apply Classical.byContradiction
   intro negGoal
   skolemizeAll
-  simp at negGoal
   sorry
-
--- Changed `l[i]` to `l[i]!`
-theorem forall_mem_zipIdx3 [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop} :
-    (∀ x : α × Nat, q x → p x) ↔ ∀ (i : ℕ) (_ : i < length l), p (l[i]!, n + i) := by
-  apply Classical.byContradiction
-  intro negGoal
-  skolemizeAll
-  simp at negGoal
-  sorry
-
-set_option pp.proofs true in
-theorem forall_mem_zipIdx4! [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop} :
-    ∀ (i : ℕ) (_ : i < length l), p (l[i]!, n + i) := by
-  apply Classical.byContradiction
-  intro negGoal
-  skolemizeAll -- **TODO** Figure out "no goals to be solved" error
-  simp at negGoal
-  sorry
-
-set_option pp.proofs true in
-theorem forall_mem_zipIdx4 [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop} :
-    ∀ (i : ℕ) (_ : i < length l), p (l[i], n + i) := by
-  apply Classical.byContradiction
-  intro negGoal
-  skolemizeAll -- **TODO** Figure out "no goals to be solved" error
-  simp at negGoal
-  sorry
-
-set_option pp.proofs true in
-theorem forall_mem_zipIdx5! [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop}
-  (h : ∃ (i : ℕ) (_ : i < length l), p (l[i]!, n + i)) : False := by
-  skolemizeAll
-  sorry
-
-set_option pp.proofs true in
-theorem forall_mem_zipIdx5 [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop}
-  (h : ∃ (i : ℕ) (_ : i < length l), p (l[i], n + i)) : False := by
-  skolemizeAll -- This may require skolemizing `∃ x : p, stuff` where `p : Prop` as `p ∧ stuff`
-  sorry
-
-set_option pp.proofs true in
-theorem forall_mem_zipIdx6! [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop}
-  (h : ∃ (i : ℕ), ∀ (_ : i < length l), p (l[i]!, n + i)) : False := by
-  skolemizeAll
-  sorry
-
-set_option pp.proofs true in
-theorem forall_mem_zipIdx6 [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop}
-  (h : ∃ (i : ℕ), ∀ (_ : i < length l), p (l[i], n + i))
-  : ∃ (i : ℕ), ∀ (_ : i < length l), p (l[i], n + i) := by
-  skolemizeAll -- **TODO** get_elem_tactic can't access `i < length l` hypothesis
-  apply Exists.intro sk0
-  exact h

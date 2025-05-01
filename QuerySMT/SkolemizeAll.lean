@@ -54,6 +54,16 @@ theorem of_prop_not_eq {p : Prop} {q : Prop} : ¬(p = q) → (¬p) = q := by
   . simp only [eq_true hp, eq_iff_iff, true_iff, not_true_eq_false, false_iff, imp_self]
   . simp only [eq_false hp, eq_iff_iff, false_iff, not_not, not_false_eq_true, true_iff, imp_self]
 theorem not_ne_iff_forward {α : Sort u_1} {a : α} {b : α} : ¬a ≠ b → a = b := Iff.mp not_ne_iff
+theorem and_of_exists_prop {p q : Prop} : (∃ _ : p, q) → p ∧ q := exists_prop.mp
+theorem and_of_exists_prop_dep {p : Prop} {q : p → Prop} : (∃ x : p, q x) → p ∧ ∀ x : p, q x := by
+  simp only [forall_exists_index]
+  intros hp hqp
+  constructor
+  . exact hp
+  . intro hp'
+    have hp_eq_hp' : hp = hp' := rfl
+    rw [← hp_eq_hp']
+    exact hqp
 
 /-- Attempts to find a witness for `α`. Succeeds if `α` is `Inhabited`, `Nonempty`, appears in the types of `forallFVars`,
     or if any witness of type `α` is already in the local context. -/
@@ -156,7 +166,25 @@ partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (f
   let t ← instantiateMVars $ ← inferType e
   trace[skolemizeAll.debug] "Calling skolemizeOne on {e} of type {t}"
   match t with
-  | Expr.app (Expr.app (Expr.const ``Exists _) ty) b =>
+  | Expr.app (Expr.app (Expr.const ``Exists _) ty) (Expr.lam n t b bi) =>
+    if (← inferType ty).isProp && !b.hasLooseBVars then
+      let e' ← mkAppM ``and_of_exists_prop #[e]
+      let (generatedSkolems', e') ← skolemizeOne e' generatedSkolems forallFVars
+      if generatedSkolems == generatedSkolems' then
+        return (generatedSkolems, e) -- No need to perform `and_of_exists_prop` transformation if no further skolemization will be done
+      else
+        return (generatedSkolems', e')
+    else if (← inferType ty).isProp && b.hasLooseBVars then
+      let e' ← mkAppM ``and_of_exists_prop_dep #[e]
+      let (generatedSkolems', e') ← skolemizeOne e' generatedSkolems forallFVars
+      if generatedSkolems == generatedSkolems' then
+        return (generatedSkolems, e) -- No need to perform `and_of_exists_prop_ep` transformation if no further skolemization will be done
+      else
+        return (generatedSkolems', e')
+    else
+      let (skolemFunction, e') ← skolemizeExists e forallFVars ty (Expr.lam n t b bi)
+      skolemizeOne e' (generatedSkolems.push (skolemFunction, ty)) forallFVars
+  | Expr.app (Expr.app (Expr.const ``Exists _) ty) b => -- Any existential quantifiers not covered by the previous case should be skolemized
     let (skolemFunction, e') ← skolemizeExists e forallFVars ty b
     skolemizeOne e' (generatedSkolems.push (skolemFunction, ty)) forallFVars
   | Expr.forallE n ty b _ =>
@@ -315,10 +343,7 @@ def skolemizeAndReplace (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : Stri
         for skolemIdx in (List.range skolemFunctions.size).reverse do
           let skolemDefFVar := introducedFVars[skolemIdx + numSkolems]!
           let skolemDefTerm ← PrettyPrinter.delab (.fvar skolemDefFVar)
-          logInfo m!"skolemDefTerm: {skolemDefTerm} (type: {← inferType (.fvar skolemDefFVar)})"
-          logInfo m!"getMainGoal before calling simp only: {← getMainGoal}"
           evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))
-          logInfo m!"getMainGoal after calling simp only: {← getMainGoal}"
         withMainContext $ RecomputeGetElem.recomputeGetElem skolemizedLemmaTerm
         withMainContext do
           for skolemIdx in (List.range skolemFunctions.size).reverse do

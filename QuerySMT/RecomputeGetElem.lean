@@ -9,20 +9,16 @@ partial def recomputeGetElemHelper (e : Expr) : TacticM Expr := do
   | .app f a         =>
     match e.getAppFn with
     | .const ``GetElem.getElem _ =>
-      logInfo m!"Found a getElem: {e}"
       let args := e.getAppArgs
       if h : args.size ≠ 8 then
         throwError "{decl_name%} :: Found GetElem.getElem with wrong number of arguments (args: {args})"
       else
         let proofToRecompute := args[7]
-        logInfo m!"proofToRecompute: {proofToRecompute}"
         let proofGoal ← inferType proofToRecompute
-        logInfo m!"proofGoal: {proofGoal}"
         let m ← mkFreshExprMVar proofGoal
         let [] ← Tactic.run m.mvarId! $ evalTactic $ ← `(tactic| get_elem_tactic)
           | throwError "{decl_name%} Unable to use get_elem_tactic to discover a new proof of {proofGoal} to replace {proofToRecompute}"
         let m ← instantiateMVars m
-        logInfo m!"proof produced by get_elem_tactic: {m}"
         let newArgs := args.set 7 m
         mkAppOptM ``GetElem.getElem $ newArgs.map some
     | _ => return e.updateApp! (← recomputeGetElemHelper f) (← recomputeGetElemHelper a)
@@ -63,20 +59,9 @@ def recomputeGetElem (id : Term) : TacticM Unit := do
   let some fvarDecl := lctx.find? fvar
     | throwError "{decl_name%} :: Unable to find {Expr.fvar fvar}"
   let fvarType := fvarDecl.type
-  logInfo m!"Calling recomputeGetElem on {fvarType}"
   let newFVarType ← recomputeGetElemHelper fvarType
-  logInfo m!"Old fvarType: {fvarType}"
-  logInfo m!"New fvarType: {newFVarType}"
-  logInfo m!"Old main goal: {← getMainGoal}"
-  logInfo m!"unsolved goals before creating newMainGoal: {← getUnsolvedGoals}"
   let newMainGoal ← (← getMainGoal).replaceLocalDeclDefEq fvar newFVarType
-  logInfo m!"newMainGoal: {newMainGoal}"
-  logInfo m!"About to replace main goal"
   replaceMainGoal [newMainGoal]
-  logInfo m!"Replaced main goal with newMainGoal"
-  logInfo m!"unsolved goals: {← getUnsolvedGoals}"
   setGoals $ ← getUnsolvedGoals
-  logInfo m!"Calling getMainGoal"
-  logInfo m!"getMainGoal: {← getMainGoal}"
 
 end RecomputeGetElem
