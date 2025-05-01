@@ -1,4 +1,5 @@
 import Lean
+import QuerySMT.RecomputeGetElem
 import Mathlib.Tactic.Push
 
 open Lean Meta Elab Tactic Parser Tactic Core Mathlib.Tactic
@@ -306,7 +307,7 @@ def skolemizeAndReplace (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : Stri
       pure (skolemNames.toList, skolemDefNames.toList)
     let (introducedFVars, newGoalMVarId) ←
       newGoalMVarId.introN (2 * numSkolems + 1) (skolemNames ++ skolemDefNames ++ [(← FVarId.getDecl fVarId).userName])
-    let newGoalMVarIds ← Tactic.run newGoalMVarId $
+    let newGoalMVarIds ← Tactic.run newGoalMVarId
       do
         let skolemizedLemmaFVar := introducedFVars[2 * numSkolems]!
         let skolemizedLemmaTerm ← PrettyPrinter.delab (.fvar skolemizedLemmaFVar)
@@ -314,8 +315,16 @@ def skolemizeAndReplace (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : Stri
         for skolemIdx in (List.range skolemFunctions.size).reverse do
           let skolemDefFVar := introducedFVars[skolemIdx + numSkolems]!
           let skolemDefTerm ← PrettyPrinter.delab (.fvar skolemDefFVar)
+          logInfo m!"skolemDefTerm: {skolemDefTerm} (type: {← inferType (.fvar skolemDefFVar)})"
+          logInfo m!"getMainGoal before calling simp only: {← getMainGoal}"
           evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))
-          evalTactic $ ← `(tactic| clear $skolemDefTerm) -- Clear skolemDef because it was only created for the above rewrite
+          logInfo m!"getMainGoal after calling simp only: {← getMainGoal}"
+        withMainContext $ RecomputeGetElem.recomputeGetElem skolemizedLemmaTerm
+        withMainContext do
+          for skolemIdx in (List.range skolemFunctions.size).reverse do
+            let skolemDefFVar := introducedFVars[skolemIdx + numSkolems]!
+            let skolemDefTerm ← PrettyPrinter.delab (.fvar skolemDefFVar)
+            evalTactic $ ← `(tactic| clear $skolemDefTerm) -- Clear skolemDef because it was only created for the above rewrite
     let [newGoalMVarId] := newGoalMVarIds
       | throwError "skolemizeAndReplace :: Failed to skolemize {Expr.fvar fVarId}"
     let newGoalMVarId ← newGoalMVarId.clear fVarId

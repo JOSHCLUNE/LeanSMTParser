@@ -5,7 +5,7 @@
    "type": "git",
    "subDir": null,
    "scope": "",
-   "rev": "143e6f77fb9d6b8dad865625da1ff378b8e9cbee",
+   "rev": "6ae19a1b634338aa2039c3c14f972f899f269354",
    "name": "«premise-selection»",
    "manifestFile": "lake-manifest.json",
    "inputRev": "v4.18.0",
