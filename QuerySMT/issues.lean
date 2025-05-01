@@ -209,41 +209,6 @@ example (t1 t2 t3 : Type) [Nonempty t3] (f : t2 → t3 → Prop) (h : ∀ n : t1
   exact h
 
 -------------------------------------------------------------------------------------------
--- These examples relating to unused forall binders used to not work at all.
--- They now work with `[Nonempty myNat]`, but fail without it
-
-example (myNat : Type) [Nonempty myNat] (f : myNat → myNat) (P : myNat → Prop)
-  (h : ∀ x y : myNat, ∃ z : myNat, y = f z) : ∀ x y : myNat, ∃ z : myNat, y = f z := by
-  skolemizeAll -- This now works
-  duper [*]
-
-example (myNat : Type) [Nonempty myNat] (f : myNat → myNat) (P : myNat → Prop)
-  (h : ∀ x y : myNat, P x → ∃ z : myNat, y = f z) : ∀ x y : myNat, P x → ∃ z : myNat, y = f z := by
-  skolemizeAll -- This now works
-  duper [*]
-
-example (myNat : Type) [Nonempty myNat] (f : myNat → myNat) (P : myNat → Prop)
-  (h : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z) : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z := by
-  skolemizeAll -- This now works
-  duper [*]
-
-set_option trace.skolemizeAll.debug true in
-example (myNat : Type) (f : myNat → myNat) (P : myNat → Prop)
-  (h : ∀ x y : myNat, ∃ z : myNat, y = f z) : ∀ x y : myNat, ∃ z : myNat, y = f z := by
-  skolemizeAll -- This fails without `[Nonempty myNat]`
-  duper [*]
-
-example (myNat : Type) (f : myNat → myNat) (P : myNat → Prop)
-  (h : ∀ x y : myNat, P x → ∃ z : myNat, y = f z) : ∀ x y : myNat, P x → ∃ z : myNat, y = f z := by
-  skolemizeAll -- This fails without `[Nonempty myNat]`
-  duper [*]
-
-example (myNat : Type) (f : myNat → myNat) (P : myNat → Prop)
-  (h : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z) : ∀ x y : myNat, P x ∨ ∃ z : myNat, y = f z := by
-  skolemizeAll -- This fails without `[Nonempty myNat]`
-  duper [*]
-
--------------------------------------------------------------------------------------------
 -- `skolemizeAll` issue based on `List.forall_mem_zipIdx` (from Mathlib.Data.List.Enum.lean)
 
 /- Work has been done to improve `skolemizeAll`'s ability to get along with `getElem`, but

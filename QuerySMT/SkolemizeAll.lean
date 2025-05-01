@@ -112,8 +112,9 @@ def skolemizeExists (e : Expr) (forallFVars : Array Expr) (α p : Expr) : Tactic
     let originalSkolemWitness ← mkAppOptM ``Skolem.some #[some α, some p, some defaultValue]
     -- `originalSkolemWitnessSpec : p originalSkolemWitness`
     let originalSkolemWitnessSpec ← mkAppM ``Skolem.spec #[defaultValue, e]
-    -- `forallFVars'` is the subset of `forallFVars` that actually appear in `e`, `α`, and `p`
-    let forallFVars' := forallFVars.filter (fun fvar => p.containsFVar fvar.fvarId! || α.containsFVar fvar.fvarId!)
+    -- `forallFVars'` is the subset of `forallFVars` that actually appear in `e`, `α`, `p`, and `defaultValue`
+    let forallFVars' := forallFVars.filter
+      (fun fvar => p.containsFVar fvar.fvarId! || α.containsFVar fvar.fvarId! || defaultValue.containsFVar fvar.fvarId!)
     -- `generalizedSkolemWitness : ∀ [forallFVars'] → α`
     let generalizedSkolemWitness ← mkLambdaFVars forallFVars' originalSkolemWitness
     return (generalizedSkolemWitness, originalSkolemWitnessSpec)
