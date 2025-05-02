@@ -83,13 +83,13 @@ theorem and_of_exists_prop_dep {p : Prop} {q : p → Prop} : (∃ x : p, q x) �
     or if any witness of type `α` is already in the local context. -/
 def tryToFindWitness (α : Expr) (forallFVars : Array Expr) : TacticM (Option Expr) := do
   try
-    return some (← mkAppOptM ``Inhabited.default #[some α, none])
+    if ← getFakeWitnessM then
+      return some (← mkAppOptM ``sorryAx #[some α, some (mkConst ``false)])
+    else
+      return some (← mkAppOptM ``Inhabited.default #[some α, none])
   catch _ =>
     try
-      if ← getFakeWitnessM then
-        return some (← mkAppOptM ``sorryAx #[some α, some (mkConst ``false)])
-      else
-        return some (← mkAppOptM ``Skolemize.choice #[some α, none])
+      return some (← mkAppOptM ``Skolemize.choice #[some α, none])
     catch _ =>
       let forallFvarsWithTypes ← forallFVars.mapM (fun fvar => do pure (fvar, ← inferType fvar))
       trace[skolemizeAll.debug] "tryToFindWitness :: forallFvarsWithTypes: {forallFvarsWithTypes}, α: {α}"
