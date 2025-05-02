@@ -183,10 +183,18 @@ partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (f
       else
         return (generatedSkolems', e')
     else
-      let (skolemFunction, e') ← skolemizeExists e forallFVars ty (Expr.lam n t b bi)
+      let etaReducedBody :=
+        match (Expr.lam n t b bi).etaExpanded? with
+        | some etaReducedBody => etaReducedBody
+        | none => Expr.lam n t b bi
+      let (skolemFunction, e') ← skolemizeExists e forallFVars ty etaReducedBody
       skolemizeOne e' (generatedSkolems.push (skolemFunction, ty)) forallFVars
   | Expr.app (Expr.app (Expr.const ``Exists _) ty) b => -- Any existential quantifiers not covered by the previous case should be skolemized
-    let (skolemFunction, e') ← skolemizeExists e forallFVars ty b
+    let etaReducedBody :=
+      match b.etaExpanded? with
+      | some etaReducedBody => etaReducedBody
+      | none => b
+    let (skolemFunction, e') ← skolemizeExists e forallFVars ty etaReducedBody
     skolemizeOne e' (generatedSkolems.push (skolemFunction, ty)) forallFVars
   | Expr.forallE n ty b _ =>
     if (← inferType ty).isProp && !b.hasLooseBVars then -- Interpret `t` is an implication rather than as a forall statement
@@ -344,7 +352,36 @@ def skolemizeAndReplace (fVarId : FVarId) (mvarId : MVarId) (skolemPrefix : Stri
         for skolemIdx in (List.range skolemFunctions.size).reverse do
           let skolemDefFVar := introducedFVars[skolemIdx + numSkolems]!
           let skolemDefTerm ← PrettyPrinter.delab (.fvar skolemDefFVar)
-          evalTactic $ ← `(tactic| try simp only [← $skolemDefTerm:term] at ($skolemizedLemmaTerm:term))
+          let skolemDefType ← inferType (.fvar skolemDefFVar)
+          /- If `skolemDefType` has the form `∀ xs, skX xs = Skolemize.some ...` then `relevanceArr` has the size of `xs` and all values set to `true`.
+             If `skolemDefType` has the form `∀ xs, skX xs = Classical.choose ...` then `relevanceArr` indicates for each `x ∈ xs` whether `x` appears
+             in the type of the last argument passed to `Classical.choose`. This determines whether this binder should be inferred by unification (`_`)
+             or by assumption (`(by assumption)`) in the final `simp only [← skolemDefTerm args]` call. -/
+          let relevanceArr : Array Bool ←
+            forallTelescope skolemDefType $ fun xs skolemDefBody => do
+              match skolemDefBody.getAppFn with
+              | Expr.const ``Eq _ =>
+                let skolemDefArgs := skolemDefBody.getAppArgs
+                if h : skolemDefArgs.size ≠ 3 then
+                  throwError "{decl_name%} :: Invalid skolem definition {Expr.fvar skolemDefFVar} (Eq has wrong number of arguments)"
+                else
+                  let instantiatedSkolemFunction := skolemDefArgs[2]
+                  let instantiatedSkolemFunctionHead := instantiatedSkolemFunction.getAppFn
+                  let instantiatedSkolemFunctionArgs := instantiatedSkolemFunction.getAppArgs
+                  match instantiatedSkolemFunctionHead with
+                  | Expr.const ``Classical.choose _ =>
+                    if h : instantiatedSkolemFunctionArgs.size ≠ 3 then
+                      throwError "{decl_name%} :: Found Classical.choose with wrong number of arguments (args: {instantiatedSkolemFunctionArgs})"
+                    else
+                      xs.mapM (fun x => do return (← inferType instantiatedSkolemFunctionArgs[2]).containsFVar (Expr.fvarId! x))
+                  | _ =>
+                    pure $ xs.map (fun _ => true)
+              | _ => throwError "{decl_name%} :: Invalid skolem definition {Expr.fvar skolemDefFVar} (head symbol is not Eq)"
+          let skolemizedLemmaIdent : Ident := mkIdent $ (← FVarId.getDecl fVarId).userName
+          let mut innerConvTacticArr ← relevanceArr.mapM (fun b => `(conv| intro))
+          let skolemDefTermArgs ← relevanceArr.mapM (fun (b : Bool) => if b then `(term| _) else `(term| (by assumption)))
+          innerConvTacticArr := innerConvTacticArr.push $ ← `(conv| simp only [← $skolemDefTerm:term $skolemDefTermArgs*])
+          evalTactic $ ← `(tacticSeq| conv at $skolemizedLemmaIdent:ident => $innerConvTacticArr*)
         withMainContext $ RecomputeGetElem.recomputeGetElem skolemizedLemmaTerm
         withMainContext do
           for skolemIdx in (List.range skolemFunctions.size).reverse do

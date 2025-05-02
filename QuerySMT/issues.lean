@@ -190,31 +190,13 @@ example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (
   sorry -- duper [*, contains3, contains4] -- Fails
 
 -------------------------------------------------------------------------------------------
--- Skolemization still fails when there are unused forall binders and potentially uninhabited types
-
--- This example fails because we don't have `[Inhabited t3]`
-example (t1 t2 t3 : Type) (f : t2 → t3 → Prop) (h : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x) : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x := by
-  skolemizeAll
-  intro n m
-  specialize h n m
-  apply Exists.intro (sk0 m)
-  exact h
-
--- This example works because we have `[Nonempty t3]`
-example (t1 t2 t3 : Type) [Nonempty t3] (f : t2 → t3 → Prop) (h : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x) : ∀ n : t1, ∀ m : t2, ∃ x : t3, f m x := by
-  skolemizeAll
-  intro n m
-  specialize h n m
-  apply Exists.intro (sk0 m)
-  exact h
-
--------------------------------------------------------------------------------------------
 -- `skolemizeAll` issue based on `List.forall_mem_zipIdx` (from Mathlib.Data.List.Enum.lean)
 
 /- Work has been done to improve `skolemizeAll`'s ability to get along with `getElem`, but
    `skolemizeAll` still fails on `forall_mem_zipIdx` when `α` is not known to be Inhabited -/
 
 set_option trace.skolemizeAll.debug true in
+set_option pp.proofs true in
 open List in
 theorem forall_mem_zipIdx {l : List α} {n : ℕ} {p : α × ℕ → Prop} :
     (∀ x ∈ l.zipIdx n, p x) ↔ ∀ (i : ℕ) (_ : i < length l), p (l[i], n + i) := by
