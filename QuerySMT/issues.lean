@@ -195,7 +195,6 @@ example : contains3 (node a (cons (node b nil) (cons (node c nil) nil))) x ↔ (
 /- Work has been done to improve `skolemizeAll`'s ability to get along with `getElem`, but
    `skolemizeAll` still fails on `forall_mem_zipIdx` when `α` is not known to be Inhabited -/
 
-set_option trace.skolemizeAll.debug true in
 set_option pp.proofs true in
 open List in
 theorem forall_mem_zipIdx {l : List α} {n : ℕ} {p : α × ℕ → Prop} :
@@ -207,9 +206,24 @@ theorem forall_mem_zipIdx {l : List α} {n : ℕ} {p : α × ℕ → Prop} :
   skolemizeAll
   sorry
 
+/- When I minimize the above problem, I basically get this. And from this problem, it's clear that
+   we shouldn't really expect it to be possible for `skolemizeAll` to succeed because we can't infer
+   from `h` that `α` is inhabited unless `q` is False -/
+set_option pp.proofs true in
+open List in
+theorem forall_mem_zipIdx2 {α : Type} {q : Prop} {l : List α} {n : ℕ} {p : α × ℕ → Prop}
+  (h : (∃ x x_1, (x, x_1) ∈ l.zipIdx n ∧ ¬p (x, x_1)) ∨ q) : False := by
+  skolemizeAll
+  -- Unknown free variable is `e1Hyp` corresponding to `∃ x x_1, (x, x_1) ∈ l.zipIdx n ∧ ¬p (x, x_1)` from
+  -- `skolemizeOne` or case. There's no real getting around this problem I think
+  sorry
+
+-- Ultimately, I think it is inevitable that this fails because we can't know from `h` that
+-- `α` is inhabited unless we also know that `q` is False
+
 -- Adding `Inhabited α` is now sufficient to make `skolemizeAll` succeed
 open List in
-theorem forall_mem_zipIdx2 [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop} :
+theorem forall_mem_zipIdxWithInhabited [Inhabited α] {l : List α} {n : ℕ} {p q : α × ℕ → Prop} :
     (∀ x : α × Nat, q x → p x) ↔ ∀ (i : ℕ) (_ : i < length l), p (l[i], n + i) := by
   apply Classical.byContradiction
   intro negGoal

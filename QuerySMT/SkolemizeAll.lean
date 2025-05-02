@@ -33,6 +33,9 @@ theorem Skolem.spec {p : α → Prop} (x : α) (hp : ∃ a, p a) :
   simp only [Skolem.some, hp]
   exact Classical.choose_spec _
 
+theorem or_of_or {a b a' b' : Prop} (h : a ∨ b) (left : a → a') (right : b → b') : a' ∨ b' :=
+  Or.casesOn h (fun h => Or.inl (left h)) fun h => Or.inr (right h)
+
 theorem both_or_neither_of_iff {p q : Prop} (h : p ↔ q) : (p ∧ q) ∨ (¬p ∧ ¬q) := by
   rw [h, and_self, and_self]
   exact em q
@@ -226,10 +229,9 @@ partial def skolemizeOne (e : Expr) (generatedSkolems : Array (Expr × Expr)) (f
         let newE2Skolems := generatedSkolemsE2.filter (fun x => !generatedSkolems.contains x)
         let t1' ← inferType e1'
         let t2' ← inferType e2'
-        let skolemizedOr ← mkAppM ``Or #[t1', t2']
-        let left ← mkLambdaFVars #[e1] $ ← mkAppM ``Or.intro_left #[t2', e1']
-        let right ← mkLambdaFVars #[e2] $ ← mkAppM ``Or.intro_right #[t1', e2']
-        return (generatedSkolems ++ newE1Skolems ++ newE2Skolems, ← mkAppOptM ``Or.elim #[none, none, skolemizedOr, e, left, right])
+        let left ← mkLambdaFVars #[e1] e1'
+        let right ← mkLambdaFVars #[e2] e2'
+        return (generatedSkolems ++ newE1Skolems ++ newE2Skolems, ← mkAppOptM ``or_of_or #[t1, t2, t1', t2', e, left, right])
   | Expr.app (Expr.app (Expr.const ``Iff _) _) _  =>
     let e' ← mkAppM ``Skolemize.both_or_neither_of_iff #[e]
     let (generatedSkolems', e') ← skolemizeOne e' generatedSkolems forallFVars
