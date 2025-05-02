@@ -4,7 +4,18 @@ import Mathlib.Tactic.Push
 
 open Lean Meta Elab Tactic Parser Tactic Core Mathlib.Tactic
 
+register_option skolemizeAll.fakeWitness : Bool := {
+  defValue := false
+  descr := "Fakes witnesses for non-Prop types (for testing only)"
+}
 namespace Skolemize
+
+def getFakeWitness (opts : Options) : Bool :=
+  skolemizeAll.fakeWitness.get opts
+
+def getFakeWitnessM : CoreM Bool := do
+  let opts ← getOptions
+  return getFakeWitness opts
 
 initialize Lean.registerTraceClass `skolemizeAll.debug
 
@@ -75,7 +86,10 @@ def tryToFindWitness (α : Expr) (forallFVars : Array Expr) : TacticM (Option Ex
     return some (← mkAppOptM ``Inhabited.default #[some α, none])
   catch _ =>
     try
-      return some (← mkAppOptM ``Skolemize.choice #[some α, none])
+      if ← getFakeWitnessM then
+        return some (← mkAppOptM ``sorryAx #[some α, some (mkConst ``false)])
+      else
+        return some (← mkAppOptM ``Skolemize.choice #[some α, none])
     catch _ =>
       let forallFvarsWithTypes ← forallFVars.mapM (fun fvar => do pure (fvar, ← inferType fvar))
       trace[skolemizeAll.debug] "tryToFindWitness :: forallFvarsWithTypes: {forallFvarsWithTypes}, α: {α}"
