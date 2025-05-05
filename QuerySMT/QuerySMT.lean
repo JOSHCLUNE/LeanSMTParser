@@ -16,6 +16,11 @@ register_option querySMT.includeSMTHintsInSetOfSupport : Bool := {
   descr := "Includes all hints provided from cvc5 in the set of support"
 }
 
+register_option querySMT.removeAllCastingFacts : Bool := {
+  defValue := false
+  descr := "Removes all facts from the set of additional facts"
+}
+
 register_option querySMT.includeCastingFactsInSetOfSupport : Bool := {
   defValue := false
   descr := "Includes all casting facts in the set of support"
@@ -58,6 +63,9 @@ def getIncludeNonUnitFacts (opts : Options) : Bool :=
 def getIncludeACFacts (opts : Options) : Bool :=
   querySMT.includeACFacts.get opts
 
+def getRemoveAllCastingFacts (opts : Options) : Bool :=
+  querySMT.removeAllCastingFacts.get opts
+
 def getIgnoreHintsM : CoreM Bool := do
   let opts ← getOptions
   return getIgnoreHints opts
@@ -81,6 +89,10 @@ def getIncludeNonUnitFactsM : CoreM Bool := do
 def getIncludeACFactsM : CoreM Bool := do
   let opts ← getOptions
   return getIncludeACFacts opts
+
+def getRemoveAllCastingFactsM : CoreM Bool := do
+  let opts ← getOptions
+  return getRemoveAllCastingFacts opts
 
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
@@ -382,6 +394,7 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
 
 -- **TODO** Experiment with ideal set of additionalFacts once we have a proper evaluation set up
 def getAdditionalFacts : CoreM (Array Term) := do
+  if ← getRemoveAllCastingFactsM then return #[]
   if (← getIncludeNonUnitFactsM) && (← getIncludeACFactsM) then
     return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
       (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
