@@ -41,6 +41,11 @@ register_option querySMT.includeACFacts : Bool := {
   descr := "Includes +/* associativity and commutativity facts to the set of additional facts"
 }
 
+register_option querySMT.disableExpensiveRules : Bool := {
+  defValue := false
+  descr := "Modifies Duper's config options to disable expensive rules"
+}
+
 declare_syntax_cat QuerySMT.configOption (behavior := symbol)
 
 namespace QuerySMT
@@ -65,6 +70,9 @@ def getIncludeACFacts (opts : Options) : Bool :=
 
 def getRemoveAllCastingFacts (opts : Options) : Bool :=
   querySMT.removeAllCastingFacts.get opts
+
+def getDisableExpensiveRules (opts : Options) : Bool :=
+  querySMT.disableExpensiveRules.get opts
 
 def getIgnoreHintsM : CoreM Bool := do
   let opts ← getOptions
@@ -93,6 +101,10 @@ def getIncludeACFactsM : CoreM Bool := do
 def getRemoveAllCastingFactsM : CoreM Bool := do
   let opts ← getOptions
   return getRemoveAllCastingFacts opts
+
+def getDisableExpensiveRulesM : CoreM Bool := do
+  let opts ← getOptions
+  return getDisableExpensiveRules opts
 
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
@@ -574,8 +586,12 @@ def evalQuerySMT : Tactic
         withMainContext do -- Use updated main context so that newly added selectors are accessible
           trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
           let duperConfigOptions :=
-            { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
-              preprocessing := none, includeExpensiveRules := none, selFunction := none }
+            if ← getDisableExpensiveRulesM then
+              { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
+                preprocessing := none, includeExpensiveRules := some false, selFunction := none }
+            else
+              { portfolioMode := true, portfolioInstance := none, inhabitationReasoning := none,
+                preprocessing := none, includeExpensiveRules := none, selFunction := none }
           let (smtLemmas, necessarySelectors, coreLctxLemmas, coreUserProvidedLemmas, _) ←
             tryCatchRuntimeEx (do
               let includeSuppliedFactsInSetOfSupport ← getIncludeSuppliedFactsInSetOfSupportM
