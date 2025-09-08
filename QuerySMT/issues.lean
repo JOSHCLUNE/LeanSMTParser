@@ -229,3 +229,36 @@ theorem forall_mem_zipIdxWithInhabited [Inhabited α] {l : List α} {n : ℕ} {p
   intro negGoal
   skolemizeAll
   sorry
+
+-------------------------------------------------------------------------------------------
+
+set_option duper.collectDatatypes false
+set_option querySMT.disableExpensiveRules true
+set_option includeDatatypeRules false
+
+-- This example requires either `duper.collectDatatypes` to be true or `querySMT.ignoreHints` to be false
+set_option querySMT.ignoreHints false in
+example : ∀ l : List Nat, l = [] ∨ ∃ n : Nat, ∃ l' : List Nat, l = n :: l' := by
+  intros l
+  apply @Classical.byContradiction
+  intro negGoal
+  have smtLemma0 : [] = l ∨ ∃ (arg1 : List ℕ) (arg0 : ℕ), l = arg0 :: arg1 := by sorry
+  duper [negGoal] [smtLemma0]
+
+-- This example requires `includeExpensiveRules` to be true or `includeDatatypesRules` to be true or `querySMT.ignoreHints` to be false
+set_option includeDatatypeRules false in
+set_option querySMT.ignoreHints false in
+example : [] ≠ [1] := by
+  querySMT
+  duper {includeExpensiveRules := false}
+
+-- This example requires `querySMT.ignoreHints` to be false or to enable datatype acyclicity rules
+set_option includeDatatypeRules true in
+set_option includeUnsafeAcyclicity true in
+example : ∀ l : List Nat, ∀ n : Nat, l ≠ n :: l := by
+  duper
+
+-- This example requires `includeDatatypesRules` to be true or `querySMT.ignoreHints` to be false
+set_option querySMT.ignoreHints false in
+example (n m : Nat) (h : [n] = [m]) : n = m := by
+  querySMT

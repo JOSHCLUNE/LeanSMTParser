@@ -345,3 +345,7 @@ example (x : myStructure2 × myStructure2) : x.2.field1 ≥ 0 := by
 example (x z : Int) (hxz : x + z < 2) (f : Int → Int)
   (hz : 0 < z) (hx : 0 ≤ x) : ∀ y : Int, f (x + y) = f y := by
   querySMT
+
+-- **NOTE** The selector fact that `querySMT` produces isn't needed for portfolio instance 7, but is needed for portfolio instance 1
+example (n m : Nat) : [n] = [m] ↔ n = m := by
+  querySMT
