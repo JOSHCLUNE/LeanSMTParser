@@ -408,11 +408,11 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
 def getAdditionalFacts : CoreM (Array Term) := do
   if ← getRemoveAllCastingFactsM then return #[]
   if (← getIncludeNonUnitFactsM) && (← getIncludeACFactsM) then
-    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
+    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.natCast_nonneg))),
       (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
       (← `(term| $(mkIdent ``lt_iff_not_ge))),
       (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
-      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_natCast))),
       (← `(term| $(mkIdent ``Int.natAbs_eq))),
       (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
       (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
@@ -429,11 +429,11 @@ def getAdditionalFacts : CoreM (Array Term) := do
       (← `(term| $(mkIdent ``Nat.mul_assoc))), (← `(term| $(mkIdent ``Nat.mul_comm))),
       (← `(term| $(mkIdent ``Nat.add_assoc))), (← `(term| $(mkIdent ``Nat.add_comm)))]
   else if (← getIncludeNonUnitFactsM) && !(← getIncludeACFactsM) then
-    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
+    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.natCast_nonneg))),
       (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
       (← `(term| $(mkIdent ``lt_iff_not_ge))),
       (← `(term| $(mkIdent ``le_iff_lt_or_eq))),
-      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_natCast))),
       (← `(term| $(mkIdent ``Int.natAbs_eq))),
       (← `(term| $(mkIdent ``Int.natAbs_eq_natAbs_iff))),
       (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
@@ -448,10 +448,10 @@ def getAdditionalFacts : CoreM (Array Term) := do
   else if !(← getIncludeNonUnitFactsM) && (← getIncludeACFactsM) then
     throwError "{decl_name%} :: `querySMT` requires the option `includeNonUnitFacts` to be set to `true` when `includeACFacts` is set to `true`"
   else -- `includeNonUnitFacts` and `includeACFacts` are both false
-    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.ofNat_nonneg))),
+    return #[(← `(term| $(mkIdent ``Nat.zero_le))), (← `(term| $(mkIdent ``Int.natCast_nonneg))),
       (← `(term| $(mkIdent ``ge_iff_le))), (← `(term| $(mkIdent ``gt_iff_lt))),
       (← `(term| $(mkIdent ``lt_iff_not_ge))),
-      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_ofNat))),
+      (← `(term| $(mkIdent ``Int.ofNat_inj))), (← `(term| $(mkIdent ``Int.natAbs_natCast))),
       (← `(term| $(mkIdent ``Int.ofNat_le))), (← `(term| $(mkIdent ``Int.ofNat_lt))),
       (← `(term| $(mkIdent ``Int.ofNat_eq_coe))), (← `(term| $(mkIdent ``Int.zero_sub))),
       (← `(term| $(mkIdent ``Int.natCast_add))), (← `(term| $(mkIdent ``Int.natCast_mul))),

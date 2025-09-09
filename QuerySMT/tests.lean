@@ -12,7 +12,7 @@ set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
 set_option trace.duper.ignoredUnusableFacts true
 
-set_option linter.deprecated false
+set_option linter.deprecated true
 
 set_option trace.auto.smt.printCommands true
 set_option trace.auto.smt.result true
