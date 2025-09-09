@@ -12,8 +12,7 @@ set_option auto.smt.savepath "/Users/joshClune/Desktop/temp.smt"
 
 set_option trace.duper.ignoredUnusableFacts true
 
--- This option lets us ignore warnings about trace options when Mathlib is imported
--- set_option linter.setOption false
+set_option linter.deprecated false
 
 set_option trace.auto.smt.printCommands true
 set_option trace.auto.smt.result true

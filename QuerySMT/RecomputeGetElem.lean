@@ -24,10 +24,9 @@ partial def recomputeGetElemHelper (e : Expr) : TacticM Expr := do
     | _ => return e.updateApp! (← recomputeGetElemHelper f) (← recomputeGetElemHelper a)
   | .mdata _ b       => return e.updateMData! (← recomputeGetElemHelper b)
   | .proj _ _ b      => return e.updateProj! (← recomputeGetElemHelper b)
-  | .letE declName t v b _  =>
-    -- return e.updateLet! (← visit t) (← visit v) (← visit b) -- **TODO** Delete
+  | .letE declName t v b nonDep  =>
     -- `visit` needs to go inside binders (so local facts are accessible to `visit b`)
-    let e' := e.updateLet! (← recomputeGetElemHelper t) (← recomputeGetElemHelper v) b
+    let e' := e.updateLet! (← recomputeGetElemHelper t) (← recomputeGetElemHelper v) b nonDep
     -- `lambdaLetBoundedTelescope` doesn't exist so I just use `lambdaLetTelescope`
     lambdaLetTelescope e' $ fun xs body => do
       let body' ← recomputeGetElemHelper body
