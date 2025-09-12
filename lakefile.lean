@@ -9,13 +9,10 @@ require «premise-selection» from git "https://github.com/hanwenzhu/premise-sel
 
 package QuerySMT {
   precompileModules := true
+  preferReleaseBuild := false
 }
 
+@[default_target]
 lean_lib QuerySMT
 
 lean_lib Hammer
-
-@[default_target]
-lean_exe «querysmt» {
-  root := `Main
-}
