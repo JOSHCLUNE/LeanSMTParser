@@ -8,7 +8,7 @@ require «Duper» from git "https://github.com/leanprover-community/duper.git" @
 require «premise-selection» from git "https://github.com/hanwenzhu/premise-selection" @ "v4.22.0"
 
 package QuerySMT {
-  precompileModules := true
+  precompileModules := false
   preferReleaseBuild := false
 }
 
