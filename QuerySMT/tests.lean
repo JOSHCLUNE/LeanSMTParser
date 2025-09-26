@@ -46,6 +46,7 @@ example (x y : Nat) (z : Int) : x < y → y < z → x < z := by
 
 -- `proveSMTLemma` is insufficient to prove the theory lemma returned by cvc5
 set_option querySMT.includeACFacts true in
+set_option trace.duper.printProof true in
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
   querySMT -- **NOTE** AC facts are needed to prove this goal
 
@@ -266,6 +267,7 @@ inductive myProd (t1 t2 : Type _)
 open myProd
 
 -- **NOTE** AC facts need to be disabled for this example to work
+-- **NOTE** `grind` fails to prove one of the hints that cvc5 generates for this problem
 set_option querySMT.includeACFacts false in
 example (sum : myStructure → Int)
   (hSum : ∀ x : Int, ∀ y : Int, sum (mk x y) = x + y)

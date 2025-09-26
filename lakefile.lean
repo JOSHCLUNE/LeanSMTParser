@@ -14,5 +14,3 @@ package QuerySMT {
 
 @[default_target]
 lean_lib QuerySMT
-
-lean_lib Hammer

@@ -1,5 +1,4 @@
 import QuerySMT
-import Hammer
 import Aesop
 import Mathlib.Tactic.Linarith
 
@@ -137,18 +136,6 @@ example (n : Nat) : MyEven n ↔ MyOdd (n + 1) := by
   sorry
 
 -------------------------------------------------------------------------------------------
-/- `hammerCore` succeeds on this example, but the tactic suggestion it recommends fails. There may be multiple
-   points of failure here, but at least one point of failure is that `h1 : p` is being recognized by auto
-   as an inhabitation fact (rather than a lemma that belongs as part of the unsat core). When we specify that
-   `p`, `q`, and `r` are `Prop`s, then the bug goes away, but we should be able to handle this example regardless -/
-
-example (h1 : p) (h2 : p → q) (h3 : r) : q := by
-  hammerCore [] [*] {simpTarget := no_target} -- `h1` and `h2` not included in suggested Duper call
-
-example (p q r : Prop) (h1 : p) (h2 : p → q) (h3 : r) : q := by
-  hammerCore [] [*] {simpTarget := no_target} -- `h1` and `h2` are included in suggested Duper call
-
--------------------------------------------------------------------------------------------
 -- Duper's preprocessing doesn't preserve knowledge about Booleans, causing it to fail on the Bool equivalent
 -- of a problem even though Duper can solve the Prop version
 
@@ -262,3 +249,47 @@ example : ∀ l : List Nat, ∀ n : Nat, l ≠ n :: l := by
 set_option querySMT.ignoreHints false in
 example (n m : Nat) (h : [n] = [m]) : n = m := by
   querySMT
+
+-------------------------------------------------------------------------------------------
+
+structure myStructure where
+  field1 : Int
+  field2 : Int
+
+open myStructure
+
+-- **NOTE** AC facts need to be disabled for this example to work
+-- **NOTE** `grind` fails to prove one of the hints that cvc5 generates for this problem
+-- **TODO** Make an evaluation that checks whether `grind` is successful in proving all of the hints cvc5 generates
+set_option querySMT.includeACFacts false in
+example (sum : myStructure → Int)
+  (hSum : ∀ x : Int, ∀ y : Int, sum (mk x y) = x + y)
+  (x : myStructure) : ∃ y : myStructure, sum y > sum x := by
+  apply @Classical.byContradiction
+  intro negGoal
+  have smtLemma0 :
+    (∀ (_i _i_0 : ℤ), sum { field1 := _i, field2 := _i_0 : myStructure } = _i + _i_0) →
+      ∀ (_i _i_0 : ℤ), _i = -Int.ofNat 1 * _i_0 + sum { field1 := _i, field2 := _i_0 : myStructure } :=
+    by grind
+  have smtLemma1 :
+    (¬∃ (_m_0 : myStructure), sum x < sum _m_0) →
+      ∀ (_m_0 : myStructure), sum x + -Int.ofNat 1 * sum _m_0 ≥ Int.ofNat 0 :=
+    by grind
+  have smtLemma2 :
+    have _let_1 := x.field2;
+    have _let_2 := x.field1;
+    have _let_3 := { field1 := _let_2, field2 := _let_1 : myStructure };
+    have _let_4 := sum _let_3;
+    have _let_5 := sum { field1 := _let_2, field2 := _let_4 : myStructure };
+    have _let_6 := sum x;
+    have _let_7 := sum { field1 := _let_1, field2 := Int.ofNat 2 : myStructure };
+    ((((¬x = _let_3 ∨ ¬_let_2 = -Int.ofNat 1 * _let_1 + _let_4) ∨ ¬_let_1 = -Int.ofNat 2 + _let_7) ∨
+          ¬_let_6 + -Int.ofNat 1 * _let_7 ≥ Int.ofNat 0) ∨
+        ¬_let_2 = -Int.ofNat 1 * _let_4 + _let_5) ∨
+      ¬_let_6 + -Int.ofNat 1 * _let_5 ≥ Int.ofNat 0 := by
+    -- `grind` alone fails to solve this
+    clear negGoal smtLemma0 smtLemma1
+    aesop
+    grind
+  have smtLemma3 : -Int.ofNat 1 * Int.ofNat 2 = -Int.ofNat 2 := by grind
+  duper [hSum, negGoal] [smtLemma0, smtLemma1, smtLemma2, smtLemma3]
