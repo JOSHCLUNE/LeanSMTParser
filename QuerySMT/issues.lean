@@ -75,11 +75,13 @@ set_option trace.auto.runAuto.printLemmas true in
 set_option trace.auto.lamReif.printProofs true in
 set_option trace.duper.printProof true in
 set_option trace.duper.proofReconstruction true in
+set_option querySMT.includeSMTHintsInSetOfSupport true in -- This bug only arises on this problem when this is set to `true`
 example (Even Odd : Int → Prop)
   (h1 : ∀ x : Int, ∀ y : Int, Odd (x) → Odd (y) → Even (x + y))
   (h2 : ∀ x : Int, ∀ y : Int, Odd (x) → Even (y) → Odd (x + y))
   (h3 : ∀ x : Int, Even (x) ↔ ¬ Odd (x))
   (h4 : Odd (1)) : Even (10) := by
+  querySMT
   /-
   have : Int.ofNat 32 + Int.ofNat 28 = Int.ofNat 60 := sorry
   have : Int.ofNat 14 + Int.ofNat 14 = Int.ofNat 28 := sorry
@@ -94,7 +96,6 @@ example (Even Odd : Int → Prop)
   have : Int.ofNat 3 + Int.ofNat 11 = Int.ofNat 14 := sorry
   duper? [*] {preprocessing := monomorphization, includeExpensiveRules := false}
   -/
-  sorry -- querySMT
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
@@ -293,3 +294,11 @@ example (sum : myStructure → Int)
     grind
   have smtLemma3 : -Int.ofNat 1 * Int.ofNat 2 = -Int.ofNat 2 := by grind
   duper [hSum, negGoal] [smtLemma0, smtLemma1, smtLemma2, smtLemma3]
+
+-------------------------------------------------------------------------------------------
+
+--`querySMT` succeeds but proof reconstruction fails
+
+set_option querySMT.includeSMTHintsInSetOfSupport true in -- Needs to be set to true for this example to succeeds
+example (x : Nat) (h : ∃ y : Nat, 2 * y = x) : x ≠ 1 := by
+  querySMT

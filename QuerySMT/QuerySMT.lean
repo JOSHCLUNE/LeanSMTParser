@@ -267,6 +267,10 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
   for factStx in extraFacts do
     if unsatCoreIncludesFact unsatCoreDerivLeafStrings factStx || alwaysInclude factStx then
       coreExtraFacts := coreExtraFacts.push factStx
+  -- Build `formulas` and `extraFormulas` to pass into `runDuperPortfolioMode` (these will be added to later)
+  trace[querySMT.debug] "{decl_name%} :: Collecting assumptions. coreUserFacts: {coreUserFacts}"
+  let formulas := (← collectAssumptions coreUserFacts includeAllLctx goalDecls).toArray
+  let extraFormulas := (← collectAssumptions extraFacts false #[]).toArray
   -- Build `smtDeclInfos` from `smtLemmas` (after instantiating loose bound variables corresponding to selectors)
   let mut selectorFVars := #[]
   for (selUserName, _, _, _) in selectorInfos do
@@ -289,10 +293,10 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
     pure declInfos
   -- Continue with local decls corresponding to `smtDeclInfos`
   withLocalDeclsD smtDeclInfos $ fun xs => do
-    -- Build `formulas` to pass into `runDuperPortfolioMode`
-    trace[querySMT.debug] "{decl_name%} :: Collecting assumptions. coreUserFacts: {coreUserFacts}"
-    let mut formulas := (← collectAssumptions coreUserFacts includeAllLctx goalDecls).toArray
-    let mut extraFormulas := (← collectAssumptions extraFacts false #[]).toArray
+    -- Add smt facts to `formulas`/`extraFormulas`
+    -- **NOTE** We do not call `Duper.collectAssumptions` here because `smtDeclInfos` are now part of the lctx
+    let mut formulas := formulas
+    let mut extraFormulas := extraFormulas
     -- Add selector facts to `extraFormulas` (to indicate that these should not be added to the set of support)
     for (selName, _selCtor, _argIdx, _selType) in selectorInfos do
       let selFactName := selName ++ "Fact"
@@ -314,7 +318,7 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
     let prf ←
       try
         Core.checkSystem "querySMT :: runDuperPortfolioMode"
-        trace[querySMT.debug] "getDuperCoreSMTLemmas :: Calling runDuperPortfolioMode with formulas: {formulas}"
+        trace[querySMT.debug] "getDuperCoreSMTLemmas :: Calling runDuperPortfolioMode with formulas: {formulas}, extraFormulas: {extraFormulas}"
         runDuperPortfolioMode formulas.toList extraFormulas.toList none duperConfigOptions none
       catch e =>
         throwError m!"getDuperCoreSMTLemmas :: Unable to use hints from external solver to reconstruct proof. " ++
@@ -682,7 +686,12 @@ def evalQuerySMTWithArgs (stxRef : Syntax) (facts : Syntax.TSepArray [`QuerySMT.
             let necessarySelectorFactName := necessarySelectorName ++ "Fact"
             necessarySelectorFactIds := necessarySelectorFactIds.push $ mkIdent (.str .anonymous necessarySelectorFactName)
           let coreUserProvidedLemmas := coreUserProvidedLemmas.filter (fun x => !coreLctxLemmaIds.contains x)
-          tacticsArr := tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ necessarySelectorFactIds),*] [$(extraFacts ++ smtLemmaIds),*])
+          -- **TODO** Also need to modify `duper` call depending on `querySMT.includeCastingFactsInSetOfSupport` and `querySMT.includeSuppliedFactsInSetOfSupport`
+          tacticsArr ←
+            if ← getIncludeSMTHintsInSetOfSupportM then
+              pure $ tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ necessarySelectorFactIds ++ smtLemmaIds),*] [$(extraFacts),*])
+            else
+              pure $ tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ necessarySelectorFactIds),*] [$(extraFacts ++ smtLemmaIds),*])
           let tacticSeq ← `(tacticSeq| $tacticsArr*)
           -- Check if any of the ids in `coreLctxLemmaIds` are shadowed. If they are, print a warning that the tactic suggestion may fail
           for coreLctxLemmaFVarId in coreLctxLemmas do

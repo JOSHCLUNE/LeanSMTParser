@@ -50,9 +50,10 @@ set_option trace.duper.printProof true in
 example {a b c d e f : Int} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
   querySMT -- **NOTE** AC facts are needed to prove this goal
 
+set_option querySMT.includeSMTHintsInSetOfSupport true in
 set_option querySMT.includeACFacts true in
 example {a b c d e f : Nat} (h : a * b = c * d) (h' : e = f) : a * (b * e) = c * (d * f) := by
-  querySMT -- **NOTE** AC facts are needed to prove this goal
+  querySMT -- **NOTE** AC facts are needed to prove this goal, `includeSMTHintsInSetOfSupport` also must be `true`
 
 example : True → ∀ x : Int, ∀ y : Int, ∀ z : Int, x ≤ y → y ≤ z → x ≤ z := by
   querySMT
@@ -72,6 +73,7 @@ example (x : Int) (h : ∃ y : Int, 2 * y = x) : x ≠ 1 := by
 example (x : Nat) (h : ∃ y : Int, 2 * y = x) : x ≠ 1 := by
   querySMT
 
+set_option querySMT.includeSMTHintsInSetOfSupport true in -- Needs to be set to true for this example to succeeds
 example (x : Nat) (h : ∃ y : Nat, 2 * y = x) : x ≠ 1 := by
   querySMT
 
@@ -296,14 +298,17 @@ example : 50 + 50 = 100 := by
 example : 50 + 50 = 100 := by
   simp -decide -arith -autoUnfold -dsimp -implicitDefEqProofs -beta -zeta -ground -unfoldPartialApp only
 
+-- `grind` fails to prove the smtLemma generated for this
 example {α : Type u} (x : α) (t : Tree α) : t ≠ Tree.node x t t := by
   querySMT
 
+set_option querySMT.includeSMTHintsInSetOfSupport true in
 example (a b c : Nat) (h1 : a + b = c) (h2 : b + c = a) (h3 : c + a = b) (h4 : a ≠ 0) : False := by
   querySMT
 
+set_option querySMT.includeSMTHintsInSetOfSupport true in
 example (a b c : Nat) (h1 : a + b = c) : a ≤ c ∧ b ≤ c := by
-  querySMT
+  querySMT -- This problem only succeeds if `querySMT.includeSMTHintsInSetOfSupport` is set to true
 
 mutual
     inductive MyTree (α : Type u) where
