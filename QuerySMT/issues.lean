@@ -299,6 +299,60 @@ example (sum : myStructure → Int)
 
 --`querySMT` succeeds but proof reconstruction fails
 
-set_option querySMT.includeSMTHintsInSetOfSupport true in -- Needs to be set to true for this example to succeeds
+set_option querySMT.includeSMTHintsInSetOfSupport true in -- Needs to be set to true for this example to succeed
 example (x : Nat) (h : ∃ y : Nat, 2 * y = x) : x ≠ 1 := by
   querySMT
+
+
+-------------------------------------------------------------------------------------------
+
+-- This example generates a selector that contains `sorry` when `t` is not known to be inhabited
+-- **TODO** Look into `Auto.buildSelector`
+
+inductive myType2 (t : Type)
+| const3 : t → myType2 t
+| const4 : t → myType2 t
+
+open myType2
+
+set_option duper.collectDatatypes true in
+example (t : Type) (x : myType2 t) : ∃ y : t, x = const3 y ∨ x = const4 y := by
+  apply @Classical.byContradiction
+  intro negGoal
+  obtain ⟨_const3__sel0, _const3__sel0Fact⟩ :
+    ∃ (_const3__sel0 : myType2 t → t), ∀ (arg0 : t), _const3__sel0 (const3 arg0) = arg0 :=
+    by
+    apply
+      Exists.intro (myType2.rec (motive := fun (_ : myType2 t) => t) (fun (arg0 : t) => arg0) fun (arg0 : t) => sorry)
+    intros
+    rfl
+  have smtLemma0 :
+    (¬∃ (_t_0 : t), x = const3 _t_0 ∨ x = const4 _t_0) →
+      ∀ (BOUND_VARIABLE_4948 : t), ¬x = const4 BOUND_VARIABLE_4948 :=
+    by grind
+  have smtLemma1 :
+    (¬∃ (_t_0 : t), x = const3 _t_0 ∨ x = const4 _t_0) →
+      ∀ (BOUND_VARIABLE_4941 : t), ¬x = const3 BOUND_VARIABLE_4941 :=
+    by grind
+  duper [negGoal, _const3__sel0Fact] [smtLemma0, smtLemma1]
+
+-------------------------------------------------------------------------------------------
+
+-- cvc5 can solve this if we don't skolemize but fails to solve this after calling `skolemizeAll`
+
+set_option auto.smt.dumpHints false in
+set_option auto.smt.trust true in
+example (Even Odd : Int → Prop) (z1 z2 : Int)
+  (h1 : ∀ x : Int, Even (x) ↔ ∃ y : Int, x = 2 * y)
+  (h2 : ∀ x : Int, Odd (x) ↔ ∃ y : Int, x = 2 * y + 1)
+  (h3 : Odd z1) (h4 : Odd z2) : Even (z1 + z2) := by
+  auto [*]
+
+example (Even Odd : Int → Prop) (z1 z2 : Int)
+  (h1 : ∀ x : Int, Even (x) ↔ ∃ y : Int, x = 2 * y)
+  (h2 : ∀ x : Int, Odd (x) ↔ ∃ y : Int, x = 2 * y + 1)
+  (h3 : Odd z1) (h4 : Odd z2) : Even (z1 + z2) := by
+  apply Classical.byContradiction
+  intro negGoal
+  skolemizeAll
+  autoGetHints

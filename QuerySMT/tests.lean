@@ -1,5 +1,4 @@
 import QuerySMT
-import Hammer
 import Aesop
 import Mathlib.Tactic.Linarith
 
@@ -20,7 +19,6 @@ set_option trace.auto.smt.proof true
 set_option trace.auto.smt.parseTermErrors true
 
 set_option trace.querySMT.debug true
-set_option trace.hammer.debug true
 set_option duper.throwPortfolioErrors false
 
 set_option duper.collectDatatypes true

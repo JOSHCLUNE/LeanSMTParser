@@ -3,7 +3,7 @@ open Lake DSL
 
 require «mathlib» from git "https://github.com/leanprover-community/mathlib4" @ "v4.22.0"
 
-require «Duper» from git "https://github.com/leanprover-community/duper.git" @ "df5422589eaaeba41dd92db86155b35961347905"
+require «Duper» from git "https://github.com/leanprover-community/duper.git" @ "querySMT"
 
 require «premise-selection» from git "https://github.com/hanwenzhu/premise-selection" @ "v4.22.0"
 
