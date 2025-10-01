@@ -220,9 +220,9 @@ theorem forall_mem_zipIdxWithInhabited [Inhabited α] {l : List α} {n : ℕ} {p
 
 -------------------------------------------------------------------------------------------
 
-set_option duper.collectDatatypes false
-set_option querySMT.disableExpensiveRules true
-set_option includeDatatypeRules false
+-- set_option duper.collectDatatypes false
+-- set_option querySMT.disableExpensiveRules true
+-- set_option includeDatatypeRules false
 
 -- This example requires either `duper.collectDatatypes` to be true or `querySMT.ignoreHints` to be false
 set_option querySMT.ignoreHints false in
@@ -336,8 +336,24 @@ example (t : Type) (x : myType2 t) : ∃ y : t, x = const3 y ∨ x = const4 y :=
     by grind
   duper [negGoal, _const3__sel0Fact] [smtLemma0, smtLemma1]
 
--------------------------------------------------------------------------------------------
+-- Trying to construct a better looking example where the `sorry` is more appropriate
 
+inductive mixedList (α β : Type _)
+| hd1 : α → mixedList α β → mixedList α β
+| hd2 : β → mixedList α β → mixedList α β
+| nil : mixedList α β
+deriving Inhabited
+
+-- `querySMT` can only prove this when `α` and `β` are known to be inhabited
+-- (because `duper` can only prove it when `α` and `β` are known to be inhabited)
+set_option trace.duper.timeout.debug true in
+set_option duper.collectDatatypes true in
+example (α β : Type _) [Inhabited α] [Inhabited β] (l : mixedList α β) (hl : l ≠ .nil) :
+  (∃ x : α, ∃ tl : mixedList α β, l = .hd1 x tl) ∨
+  (∃ x : β, ∃ tl : mixedList α β, l = .hd2 x tl) := by
+  querySMT -- Unfortunately, `querySMT` doesn't need the selectors output
+
+-------------------------------------------------------------------------------------------
 -- cvc5 can solve this if we don't skolemize but fails to solve this after calling `skolemizeAll`
 
 set_option auto.smt.dumpHints false in
@@ -355,4 +371,12 @@ example (Even Odd : Int → Prop) (z1 z2 : Int)
   apply Classical.byContradiction
   intro negGoal
   skolemizeAll
-  autoGetHints
+  sorry -- autoGetHints fails
+
+-------------------------------------------------------------------------------------------
+-- Duper bug (produces a wrong proof)
+
+#print Tree
+
+example {α : Type} (x y : α) : Tree.node x Tree.nil Tree.nil = Tree.node y Tree.nil Tree.nil ↔ x = y := by
+  duper

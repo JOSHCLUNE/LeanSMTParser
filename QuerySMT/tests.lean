@@ -353,3 +353,6 @@ example (x z : Int) (hxz : x + z < 2) (f : Int → Int)
 -- **NOTE** The selector fact that `querySMT` produces isn't needed for portfolio instance 7, but is needed for portfolio instance 1
 example (n m : Nat) : [n] = [m] ↔ n = m := by
   querySMT
+
+example {α : Type} (x y : α) : #[x] = #[y] ↔ x = y := by
+  querySMT
