@@ -12,7 +12,7 @@ register_option querySMT.ignoreHints : Bool := {
 }
 
 register_option querySMT.includeSMTHintsInSetOfSupport : Bool := {
-  defValue := false
+  defValue := true
   descr := "Includes all hints provided from cvc5 in the set of support"
 }
 

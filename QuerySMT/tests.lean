@@ -369,3 +369,42 @@ example {α : Type} [Inhabited α] (x y : α) : [x] = [y] ↔ x = y := by
     intros
     rfl
   duper [negGoal] [«_List.cons_sel0Fact»]
+
+-- Selector facts needed for portoflio instance 1. Duper can solve this on its own in portfolio instance 7.
+example {α : Type} [Inhabited α] (x y x' y' : α) : [x, y] = [x', y'] ↔ (x = x' ∧ y = y') := by
+  apply @Classical.byContradiction
+  intro negGoal
+  obtain ⟨«_List.cons_sel0», «_List.cons_sel0Fact»⟩ :
+    ∃ («_List.cons_sel0» : List α → α), ∀ (arg0 : α) (arg1 : List α), «_List.cons_sel0» (arg0 :: arg1) = arg0 :=
+    by
+    apply
+      Exists.intro (List.rec (motive := fun (_ : List α) => α) default fun (arg0 : α) (arg1 : List α) (_ : α) => arg0)
+    intros
+    rfl
+  obtain ⟨«_List.cons_sel1», «_List.cons_sel1Fact»⟩ :
+    ∃ («_List.cons_sel1» : List α → List α), ∀ (arg0 : α) (arg1 : List α), «_List.cons_sel1» (arg0 :: arg1) = arg1 :=
+    by
+    apply
+      Exists.intro (List.rec (motive := fun (_ : List α) => List α) default fun (arg0 : α) (arg1 _ : List α) => arg1)
+    intros
+    rfl
+  duper [negGoal] [«_List.cons_sel0Fact», «_List.cons_sel1Fact»]
+
+example {α : Type} (x y x' y' : α) : [x, y] = [x', y'] ↔ (x = x' ∧ y = y') := by
+  apply @Classical.byContradiction
+  intro negGoal
+  obtain ⟨«_List.cons_sel0», «_List.cons_sel0Fact»⟩ :
+    ∃ («_List.cons_sel0» : List α → α), ∀ (arg0 : α) (arg1 : List α), «_List.cons_sel0» (arg0 :: arg1) = arg0 :=
+    by
+    apply
+      Exists.intro (List.rec (motive := fun (_ : List α) => α) sorry fun (arg0 : α) (arg1 : List α) (_ : α) => arg0)
+    intros
+    rfl
+  obtain ⟨«_List.cons_sel1», «_List.cons_sel1Fact»⟩ :
+    ∃ («_List.cons_sel1» : List α → List α), ∀ (arg0 : α) (arg1 : List α), «_List.cons_sel1» (arg0 :: arg1) = arg1 :=
+    by
+    apply
+      Exists.intro (List.rec (motive := fun (_ : List α) => List α) default fun (arg0 : α) (arg1 _ : List α) => arg1)
+    intros
+    rfl
+  duper [negGoal] [«_List.cons_sel0Fact», «_List.cons_sel1Fact»]

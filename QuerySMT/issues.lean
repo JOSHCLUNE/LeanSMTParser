@@ -69,13 +69,15 @@ example (x y : Real) : x < y ∨ y ≤ x := by
 -- after `autoGetHints` succeeds, so the issue is that when filtering the Duper core, we're eliminating
 -- some `smtLemma`s that are actually needed.
 
-set_option trace.auto.inspectMVarAssignments true in
-set_option trace.auto.printLemmas true in
-set_option trace.auto.runAuto.printLemmas true in
-set_option trace.auto.lamReif.printProofs true in
-set_option trace.duper.printProof true in
-set_option trace.duper.proofReconstruction true in
+-- set_option trace.auto.inspectMVarAssignments true in
+-- set_option trace.auto.printLemmas true in
+-- set_option trace.auto.runAuto.printLemmas true in
+-- set_option trace.auto.lamReif.printProofs true in
+-- set_option trace.auto.lamReif.prep.printResult true in
+-- set_option trace.duper.printProof true in
+-- set_option trace.duper.proofReconstruction true in
 set_option querySMT.includeSMTHintsInSetOfSupport true in -- This bug only arises on this problem when this is set to `true`
+set_option trace.duper.setOfSupport.debug true in
 example (Even Odd : Int → Prop)
   (h1 : ∀ x : Int, ∀ y : Int, Odd (x) → Odd (y) → Even (x + y))
   (h2 : ∀ x : Int, ∀ y : Int, Odd (x) → Even (y) → Odd (x + y))
@@ -97,6 +99,7 @@ example (Even Odd : Int → Prop)
   duper? [*] {preprocessing := monomorphization, includeExpensiveRules := false}
   -/
 
+set_option querySMT.includeSMTHintsInSetOfSupport true in
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1)
@@ -351,7 +354,83 @@ set_option duper.collectDatatypes true in
 example (α β : Type _) [Inhabited α] [Inhabited β] (l : mixedList α β) (hl : l ≠ .nil) :
   (∃ x : α, ∃ tl : mixedList α β, l = .hd1 x tl) ∨
   (∃ x : β, ∃ tl : mixedList α β, l = .hd2 x tl) := by
-  querySMT -- Unfortunately, `querySMT` doesn't need the selectors output
+  have ⟨«_mixedList.hd1__sel0», «_mixedList.hd1__sel0Fact»⟩ :
+    ∃ («_mixedList.hd1__sel0» : mixedList α β → α),
+      ∀ (arg0 : α) (arg1 : mixedList α β), «_mixedList.hd1__sel0» (mixedList.hd1 arg0 arg1) = arg0 :=
+    by
+    apply
+      Exists.intro
+        (mixedList.rec (motive := fun (_ : mixedList α β) => α)
+          (fun (arg0 : α) (arg1 : mixedList α β) (_ : α) => arg0)
+          (fun (arg0 : β) (arg1 : mixedList α β) (_ : α) => default) default)
+    intros
+    rfl
+  have ⟨«_mixedList.hd1__sel1», «_mixedList.hd1__sel1Fact»⟩ :
+    ∃ («_mixedList.hd1__sel1» : mixedList α β → mixedList α β),
+      ∀ (arg0 : α) (arg1 : mixedList α β), «_mixedList.hd1__sel1» (mixedList.hd1 arg0 arg1) = arg1 :=
+    by
+    apply
+      Exists.intro
+        (mixedList.rec (motive := fun (_ : mixedList α β) => mixedList α β)
+          (fun (arg0 : α) (arg1 _ : mixedList α β) => arg1) (fun (arg0 : β) (arg1 _ : mixedList α β) => default)
+          default)
+    intros
+    rfl
+  have ⟨«_mixedList.hd2__sel0», «_mixedList.hd2__sel0Fact»⟩ :
+    ∃ («_mixedList.hd2__sel0» : mixedList α β → β),
+      ∀ (arg0 : β) (arg1 : mixedList α β), «_mixedList.hd2__sel0» (mixedList.hd2 arg0 arg1) = arg0 :=
+    by
+    apply
+      Exists.intro
+        (mixedList.rec (motive := fun (_ : mixedList α β) => β)
+          (fun (arg0 : α) (arg1 : mixedList α β) (_ : β) => default)
+          (fun (arg0 : β) (arg1 : mixedList α β) (_ : β) => arg0) default)
+    intros
+    rfl
+  have ⟨«_mixedList.hd2__sel1», «_mixedList.hd2__sel1Fact»⟩ :
+    ∃ («_mixedList.hd2__sel1» : mixedList α β → mixedList α β),
+      ∀ (arg0 : β) (arg1 : mixedList α β), «_mixedList.hd2__sel1» (mixedList.hd2 arg0 arg1) = arg1 :=
+    by
+    apply
+      Exists.intro
+        (mixedList.rec (motive := fun (_ : mixedList α β) => mixedList α β)
+          (fun (arg0 : α) (arg1 _ : mixedList α β) => default) (fun (arg0 : β) (arg1 _ : mixedList α β) => arg1)
+          default)
+    intros
+    rfl
+  have :
+    ¬((∃ (_α_0 : α) (_m_0 : mixedList α β), l = mixedList.hd1 _α_0 _m_0) ∨
+          ∃ (_β_0 : β) (_m_1 : mixedList α β), l = mixedList.hd2 _β_0 _m_1) →
+      ∀ (_β_0 : β) (_m_1 : mixedList α β), ¬l = mixedList.hd2 _β_0 _m_1 :=
+    sorry
+  have :
+    ¬((∃ (_α_0 : α) (_m_0 : mixedList α β), l = mixedList.hd1 _α_0 _m_0) ∨
+          ∃ (_β_0 : β) (_m_1 : mixedList α β), l = mixedList.hd2 _β_0 _m_1) →
+      ∀ (_α_0 : α) (_m_0 : mixedList α β), ¬l = mixedList.hd1 _α_0 _m_0 :=
+    sorry
+  have : ¬l = mixedList.nil → ¬mixedList.nil = l := sorry
+  have :
+    (∃ (arg1 : mixedList α β) (arg0 : β), l = mixedList.hd2 arg0 arg1) →
+      l = mixedList.hd2 («_mixedList.hd2__sel0» l) («_mixedList.hd2__sel1» l) :=
+    sorry
+  have :
+    (mixedList.nil = l ∨ ∃ (arg1 : mixedList α β) (arg0 : α), l = mixedList.hd1 arg0 arg1) ∨
+      ∃ (arg1 : mixedList α β) (arg0 : β), l = mixedList.hd2 arg0 arg1 :=
+    sorry
+  have :
+    (∃ (arg1 : mixedList α β) (arg0 : α), l = mixedList.hd1 arg0 arg1) →
+      l = mixedList.hd1 («_mixedList.hd1__sel0» l) («_mixedList.hd1__sel1» l) :=
+    sorry
+  have :
+    (∀ (_α_0 : α) (_m_0 : mixedList α β), ¬l = mixedList.hd1 _α_0 _m_0) →
+      ¬l = mixedList.hd1 («_mixedList.hd1__sel0» l) («_mixedList.hd1__sel1» l) :=
+    sorry
+  have :
+    (∀ (_β_0 : β) (_m_1 : mixedList α β), ¬l = mixedList.hd2 _β_0 _m_1) →
+      ¬l = mixedList.hd2 («_mixedList.hd2__sel0» l) («_mixedList.hd2__sel1» l) :=
+    sorry
+  sorry
+  -- querySMT -- Unfortunately, `querySMT` doesn't need the selectors output
 
 -------------------------------------------------------------------------------------------
 -- cvc5 can solve this if we don't skolemize but fails to solve this after calling `skolemizeAll`
