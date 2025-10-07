@@ -112,7 +112,7 @@ example (Even Odd : Int → Prop)
   (h2 : ∀ x : Int, ∀ y : Int, Odd (x) → Even (y) → Odd (x + y))
   (h3 : ∀ x : Int, Even (x) ↔ ¬ Odd (x))
   (h4 : Odd (1)) : Even (10) := by
-  querySMT -- **NOTE** This exhibits a bug where necessary smtLemmas are dropped in the tactic suggestion
+  querySMT -- **NOTE** This used to exhibit a bug where necessary smtLemmas are dropped in the tactic suggestion
 
 -- **NOTE** This example times out if we don't include casting facts and hints in the set of support
 set_option querySMT.includeCastingFactsInSetOfSupport true in
@@ -120,12 +120,12 @@ set_option querySMT.includeSuppliedFactsInSetOfSupport true in
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Pos x → Pos (x + 1))
   (h5 : Pos 1) : Pos 2 := by
-  querySMT -- **NOTE** This exhibits a bug where necessary smtLemmas are dropped in the tactic suggestion
+  querySMT -- **NOTE** This used to exhibit a bug where necessary smtLemmas are dropped in the tactic suggestion
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg x → Neg (x - 1))
   (h5 : Neg (-1)) : Neg (-2) := by
-  querySMT -- **NOTE** This exhibits a bug where necessary smtLemmas are dropped in the tactic suggestion
+  querySMT -- **NOTE** This used to exhibit a bug where necessary smtLemmas are dropped in the tactic suggestion
 
 example (Pos Neg Zero : Int → Prop)
   (h4 : ∀ x : Int, Neg x → Neg (x - 1))
@@ -356,3 +356,16 @@ example (n m : Nat) : [n] = [m] ↔ n = m := by
 
 example {α : Type} (x y : α) : #[x] = #[y] ↔ x = y := by
   querySMT
+
+-- This example uses a selector fact (for getting the head, but not the tail), so we might use this as an example
+example {α : Type} [Inhabited α] (x y : α) : [x] = [y] ↔ x = y := by
+  apply @Classical.byContradiction
+  intro negGoal
+  obtain ⟨«_List.cons_sel0», «_List.cons_sel0Fact»⟩ :
+    ∃ («_List.cons_sel0» : List α → α), ∀ (arg0 : α) (arg1 : List α), «_List.cons_sel0» (arg0 :: arg1) = arg0 :=
+    by
+    apply
+      Exists.intro (List.rec (motive := fun (_ : List α) => α) default fun (arg0 : α) (arg1 : List α) (_ : α) => arg0)
+    intros
+    rfl
+  duper [negGoal] [«_List.cons_sel0Fact»]

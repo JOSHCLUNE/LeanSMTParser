@@ -691,7 +691,7 @@ def evalQuerySMTWithArgs (stxRef : Syntax) (facts : Syntax.TSepArray [`QuerySMT.
             if ← getIncludeSMTHintsInSetOfSupportM then
               pure $ tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ necessarySelectorFactIds ++ smtLemmaIds),*] [$(extraFacts),*])
             else
-              pure $ tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas ++ necessarySelectorFactIds),*] [$(extraFacts ++ smtLemmaIds),*])
+              pure $ tacticsArr.push $ ← `(tactic| duper [$(coreLctxLemmaIds ++ coreUserProvidedLemmas),*] [$(necessarySelectorFactIds ++ smtLemmaIds ++ extraFacts),*])
           let tacticSeq ← `(tacticSeq| $tacticsArr*)
           -- Check if any of the ids in `coreLctxLemmaIds` are shadowed. If they are, print a warning that the tactic suggestion may fail
           for coreLctxLemmaFVarId in coreLctxLemmas do
