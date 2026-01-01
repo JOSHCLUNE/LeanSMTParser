@@ -619,7 +619,7 @@ def evalQuerySMTWithArgs (stxRef : Syntax) (facts : Syntax.TSepArray [`QuerySMT.
           )
           throwSelectorConstructionError
         withMainContext do -- Use updated main context so that newly added selectors are accessible
-          if ← getPrintHintNumbersM then IO.println s!"Number of lemmas before filter: {smtLemmas.length + selectorInfos.size}"
+          if ← getPrintHintNumbersM then dbg_trace s!"Number of lemmas before filter: {smtLemmas.length + selectorInfos.size}"
           trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
           let duperConfigOptions :=
             if ← getDisableExpensiveRulesM then
@@ -645,7 +645,7 @@ def evalQuerySMTWithArgs (stxRef : Syntax) (facts : Syntax.TSepArray [`QuerySMT.
                 getDuperCoreSMTLemmas unsatCoreDerivLeafStrings (#[] : Array Term) extraFacts goalDecls selectorInfos smtLemmas includeLCtx (← isAdditionalFact) duperConfigOptions
               )
               throwDuperError
-          if ← getPrintHintNumbersM then IO.println s!"Number of lemmas after filter: {smtLemmas.size + necessarySelectors.size}"
+          if ← getPrintHintNumbersM then dbg_trace s!"Number of lemmas after filter: {smtLemmas.size + necessarySelectors.size}"
           trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
           let smtLemmasStx ← smtLemmas.mapM
             (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)
