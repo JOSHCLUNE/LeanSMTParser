@@ -46,6 +46,16 @@ register_option querySMT.disableExpensiveRules : Bool := {
   descr := "Modifies Duper's config options to disable expensive rules"
 }
 
+register_option querySMT.filterHints : Bool := {
+  defValue := true
+  descr := "Tells querySMT to only include smt hints that contribute to the final proof Duper finds"
+}
+
+register_option querySMT.printHintNumbers : Bool := {
+  defValue := false
+  descr := "Tells querySMT to print the number of smt hints"
+}
+
 declare_syntax_cat QuerySMT.configOption (behavior := symbol)
 
 namespace QuerySMT
@@ -73,6 +83,12 @@ def getRemoveAllCastingFacts (opts : Options) : Bool :=
 
 def getDisableExpensiveRules (opts : Options) : Bool :=
   querySMT.disableExpensiveRules.get opts
+
+def getFilterHints (opts : Options) : Bool :=
+  querySMT.filterHints.get opts
+
+def getPrintHintNumbers (opts : Options) : Bool :=
+  querySMT.printHintNumbers.get opts
 
 def getIgnoreHintsM : CoreM Bool := do
   let opts ← getOptions
@@ -105,6 +121,14 @@ def getRemoveAllCastingFactsM : CoreM Bool := do
 def getDisableExpensiveRulesM : CoreM Bool := do
   let opts ← getOptions
   return getDisableExpensiveRules opts
+
+def getFilterHintsM : CoreM Bool := do
+  let opts ← getOptions
+  return getFilterHints opts
+
+def getPrintHintNumbersM : CoreM Bool := do
+  let opts ← getOptions
+  return getPrintHintNumbers opts
 
 syntax (&"lemmaPrefix" " := " strLit) : QuerySMT.configOption
 syntax (&"skolemPrefix" " := " strLit) : QuerySMT.configOption
@@ -325,10 +349,11 @@ def getDuperCoreSMTLemmas (unsatCoreDerivLeafStrings : Array String) (userFacts 
                    m!"Duper threw the following error:\n\n{e.toMessageData}"
     -- Find `smtLemmasInPrf`
     -- **TODO** This procedure does not appear to always work (see Even/Odd example in issues.lean). Look into a better method
+    let filterHints ← getFilterHintsM
     let mut smtLemmasInPrf := #[]
     let mut smtDeclIndex := 0
     for x in xs do
-      if prf.containsFVar x.fvarId! then
+      if !filterHints || prf.containsFVar x.fvarId! then
         trace[querySMT.debug] "{smtLemmas[smtDeclIndex]!} appears in the proof (index: {smtDeclIndex})"
         smtLemmasInPrf := smtLemmasInPrf.push (smtLemmas[smtDeclIndex]!)
       else
@@ -387,7 +412,7 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     if idx < smtLemmaCount then
       let smtLemmaWarning :=
         m!" This can be done by calling querySMT while setting the lemmaPrefix option " ++
-        m!"(e.g. querySMT \{lemmaPrefix := \"mySMTLemmaPrefix\"})"
+        m!"(e.g. querySMT \{lemmaPrefix := mySMTLemmaPrefix})"
       return generalWarning ++ smtLemmaWarning
   | _ => pure () -- Do nothing
   match s.splitOn goalHypPrefix with
@@ -397,7 +422,7 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     if idx < numGoalHyps then
       let goalHypWarning :=
         m!" This can be done by calling querySMT while setting the goalHypPrefix option " ++
-        m!"(e.g. querySMT \{goalHypPrefix := \"myGoalHypPrefix\"})"
+        m!"(e.g. querySMT \{goalHypPrefix := myGoalHypPrefix})"
       return generalWarning ++ goalHypWarning
   | _ => pure () -- Do nothing
   match s.splitOn skolemPrefix with
@@ -405,13 +430,13 @@ def makeShadowWarning (n : Name) (smtLemmaCount : Nat) (smtLemmaPrefix : String)
     if idxStr.isNat then
       let skolemPrefixWarning :=
         m!" This can be done by calling querySMT while setting the skolemPrefix option " ++
-        m!"(e.g. querySMT \{skolemPrefix := \"mySkolemPrefix\"})"
+        m!"(e.g. querySMT \{skolemPrefix := mySkolemPrefix})"
       return generalWarning ++ skolemPrefixWarning
   | _ => pure () -- Do nothing
   if s == negGoalLemmaName then
     let negGoalWarning :=
       m!" This can be done by calling querySMT while setting the negGoalLemmaName option " ++
-      m!"(e.g. querySMT \{negGoalLemmaName := \"myNegGoalLemmaName\"})"
+      m!"(e.g. querySMT \{negGoalLemmaName := myNegGoalLemmaName})"
     return generalWarning ++ negGoalWarning
   return generalWarning
 
@@ -594,6 +619,7 @@ def evalQuerySMTWithArgs (stxRef : Syntax) (facts : Syntax.TSepArray [`QuerySMT.
           )
           throwSelectorConstructionError
         withMainContext do -- Use updated main context so that newly added selectors are accessible
+          if ← getPrintHintNumbersM then IO.println s!"Number of lemmas before filter: {smtLemmas.length + selectorInfos.size}"
           trace[querySMT.debug] "Number of lemmas before filter: {smtLemmas.length}"
           let duperConfigOptions :=
             if ← getDisableExpensiveRulesM then
@@ -619,6 +645,7 @@ def evalQuerySMTWithArgs (stxRef : Syntax) (facts : Syntax.TSepArray [`QuerySMT.
                 getDuperCoreSMTLemmas unsatCoreDerivLeafStrings (#[] : Array Term) extraFacts goalDecls selectorInfos smtLemmas includeLCtx (← isAdditionalFact) duperConfigOptions
               )
               throwDuperError
+          if ← getPrintHintNumbersM then IO.println s!"Number of lemmas after filter: {smtLemmas.size + necessarySelectors.size}"
           trace[querySMT.debug] "Number of lemmas after filter: {smtLemmas.size}"
           let smtLemmasStx ← smtLemmas.mapM
             (fun lemExp => withOptions ppOptionsSetting $ PrettyPrinter.delab lemExp)

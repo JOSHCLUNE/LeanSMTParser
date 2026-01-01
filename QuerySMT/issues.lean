@@ -459,3 +459,11 @@ example (Even Odd : Int → Prop) (z1 z2 : Int)
 
 example {α : Type} (x y : α) : Tree.node x Tree.nil Tree.nil = Tree.node y Tree.nil Tree.nil ↔ x = y := by
   duper
+
+-------------------------------------------------------------------------------------------
+example : ∀ l : List Int, l = [] ∨ ∃ x : Int, ∃ l' : List Int, l = x :: l' := by
+  sorry -- autoGetHints
+
+theorem length_concat2 {as : List α} {a : α} : (List.concat as a).length = as.length + 1 := by
+  -- querySMT [List.concat, List.length]
+  sorry
